@@ -1,0 +1,9 @@
+{
+  "maxConcurrent": 2,
+  "timeoutMs": 900000,
+  "maxTurns": 30,
+  "childExtensions": [],
+  "extraTools": [],
+  "reviewerTools": [],
+  "enableMcp": false
+}

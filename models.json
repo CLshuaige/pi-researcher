@@ -1,0 +1,28 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "blsc": {
+      "name": "BLSC OpenAI-Compatible API",
+      "baseUrl": "https://llmapi.blsc.cn",
+      "api": "openai-completions",
+      "apiKey": "$BLSC_API_KEY",
+      "authHeader": true,
+      "models": [
+        {
+          "id": "Kimi-K3",
+          "name": "BLSC Kimi-K3",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 131072,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    }
+  }
+}
