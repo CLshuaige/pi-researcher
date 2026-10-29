@@ -1,6 +1,6 @@
 # 输出与执行交接
 
-这是本技能的文件约定，沿用原方法对象的主要字段，不是 Pi 工具协议，也不是 engine 的 plan.json 格式。不需要复用旧框架的 Python 类或 Markdown 正则解析器。
+这是本技能的文件约定，沿用原方法对象的主要字段，不是 Pi 工具协议，也不是 engine 的 plan.json 格式。阶段主产物统一为 `method.md`，`method.json` 是结构化配套，Formatter 与交接文件是过程记录。不需要复用旧框架的 Python 类或 Markdown 正则解析器。
 
 ## Formatter 输出
 
@@ -36,7 +36,7 @@ Formatter 把完整 JSON 保存为本次运行目录中的 `formatter.json`，�
 
 `overview` 为字符串；`steps` 为步骤列表；每步的 `step_id`、`description`、`assignee`、`expected_output` 为字符串，`dependencies` 为步骤 ID 数组。`execution_order` 为按执行次序排列的步骤 ID；`assignments` 按 Engineer、RA 汇总任务字符串数组；`resources` 为资源描述对象；`criticisms` 为字符串数组；`debate_rounds` 填实际完成的 Critic 轮数。
 
-完成要求放在 `description` 或 `expected_output`，不新增独立 `success_criteria` 字段。具体环境、命令已知时写明，未知时明确指出，不能为了填充方案编造现成命令或资源。实验是否正确执行与假说是否得到支持应分别解释。
+完成要求放在 `description` 或 `expected_output`，不新增独立 `success_criteria` 字段。具体环境、命令及资源预算已知时写明并关联上下文出处，未知时明确指出，估计值注明依据，不能为了填充方案编造命令、硬件、实验周期或计算预算。实验是否正确执行与假说是否得到支持应分别解释。
 
 ## 主会话保存
 
@@ -51,7 +51,7 @@ Formatter 把完整 JSON 保存为本次运行目录中的 `formatter.json`，�
 - 执行范围、已有环境、已知运行方式、验收证据、预算与停止条件。
 - 实际辩论轮数、因 READY 还是轮数上限结束，以及重要批评和限制。
 
-批评详情可链接 `method.json` 和逐轮评审，保持设计对象与可读方案一致。项目已有 `PLAN.md` 约定或用户指定该名称时，同步生成该入口并指向本次完整方法，不维护相互矛盾的两份方案。
+批评详情可链接 `method.json` 和逐轮评审，保持设计对象与可读方案一致。项目已有 `PLAN.md` 约定或用户指定该名称时，可另建入口指向本次 `method.md`，不替代阶段主产物，也不维护相互矛盾的两份方案。
 
 无法解析 Formatter 输出或未形成实际方法时，保留原始输出和讨论，报告未完整生成，不伪造实验步骤或执行结果。
 
