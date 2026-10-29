@@ -4,7 +4,7 @@
 
 ## Formatter 输出
 
-Formatter 将完整 JSON 保存到本次运行目录的 `formatter.json`。顶层 `ideas` 是候选列表，每个候选包含以下字段；下面仅演示单个条目的形状，实际按讨论结果输出候选。
+Formatter 将完整 JSON 保存到本次运行目录的 `formatter.json`，最终回复另按 [子代理交接](pi-subagents.md#子代理交接) 返回实际地址和工作小结。主会话从交接的 `artifacts` 打开该产物，不将交接 JSON 当成候选 JSON。顶层 `ideas` 是候选列表，每个候选包含以下字段；下面仅演示单个条目的形状，实际按讨论结果输出候选。
 
 ```json
 {
