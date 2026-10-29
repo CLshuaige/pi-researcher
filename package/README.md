@@ -1,8 +1,24 @@
 # Pi Researcher
 
+当前入口为 `/researcher <指令>`，以根目录 `checklist.json` 管理动态模块、验收、审计和有界续跑。`/research` 保留兼容；仅初始化不会启动闭环。详见 [闭环控制与工具协议](docs/closed-loop.md) 和 [Checklist 调用规范](docs/checklist-protocol.md)。Escape/pause 后可直接输入新指令恢复当前会话的闭环；stop 或 reload 后使用 `/researcher resume`。
+
 面向 Pi TUI 的模块化研究 package：一个主会话、七类按需加载的研究 Skills、可持久化和续接的子任务、文件化成果，以及适配后的实验 engine。
 
 主会话负责研究目标、资源判断和综合结论。轻量任务直接完成；文献探索、持续实验和独立评审按需委派。七类能力不是必须依次通过的七个阶段。
+
+## 0.5.0 托管后台任务与定时唤醒
+
+长下载、训练等进程可通过 `research_job` 启动，立即返回任务 ID，主会话可在任务运行期间处理新输入。任务结束会唤醒研究；需要中途检查时使用 `wait` 设置一次定时唤醒。等待期间不循环调用模型，不消耗自动续跑次数；真正的自动唤醒计入原有 20 次预算，30 分钟整体时限仍然有效。
+
+`/researcher status` 查看任务，`/researcher inspect J-...` 查看日志尾部和退出码，`/researcher stop J-...` 取消一个任务。暂停、stop、Escape、退出或 reload 会取消托管进程及定时器。新功能当前支持 Linux；普通 Bash 和 research_delegate 仍然前台等待，不会自动转换为后台任务。
+
+升级后 `/reload`，再 `/researcher resume`。已有清单和子任务记录无需迁移。完整 JSON 示例和恢复语义见 [后台任务与等待](docs/closed-loop.md#托管后台任务与定时唤醒)。
+
+## 0.4.0 接口调整
+
+0.4.0 将主会话工具精简为 `research_checklist` 和 `research_delegate`；0.5.0 增加 `research_job` 承载托管进程；移除 `research_workspace`，工作区初始化使用 `/researcher init`，清单初始化使用 checklist 的 `init`，状态、能力和任务详情通过命令查看。checklist 移除旧 `module` 参数与 `module.id` 回退，更新统一使用 `moduleId` 和顶层部分字段。`/research` 别名继续可用。
+
+升级无需迁移已有清单、任务或会话文件；执行 `/reload` 重新加载模型工具，然后用 `/researcher resume` 显式恢复。TUI 的 Skill widget 只显示成功加载的名称，例如 `Skills: research-literature`，不展示路径、正文或完整检查点。模块切换时更新，相同名称不刷新，暂停、完成和退出时清除。
 
 ## 安装与开始
 
@@ -15,8 +31,7 @@ pi install /absolute/path/to/pi-researcher
 在研究项目目录启动 `pi`，已经打开的 TUI 执行 `/reload`。然后：
 
 ```text
-/research init 比较已有数据上两种方法的适用条件，给出可核查报告
-/research
+/researcher 比较已有数据上两种方法的适用条件，给出可核查报告
 ```
 
 也可以直接 `/research <研究目标>`，初始化后交给主 Agent 继续。`init` 只建立文件，不调用模型，不覆盖现有目标和状态。此后在自然语言中说明目标变化；主 Agent 应更新 `BRIEF.md`。
@@ -47,12 +62,13 @@ pi install npm:pi-subagents
 | `/research inspect <任务ID>` | 查看交接、证据和成果位置                                       |
 | `/research stop <任务ID>`    | 取消本 Pi runtime 中的任务，等待终态后再恢复                   |
 | `/research help`             | 简要帮助                                                       |
-| `research_workspace`         | 模型可调用的 init/status/inspect，无模型嵌套调用               |
+| `research_checklist`         | 模型可调用的清单规划、状态变更、指令处理与验收               |
+| `research_job`               | 启动、查看、取消后台进程或设置一次定时等待                     |
 | `research_delegate`          | 模型可调用的有界子任务执行；精确任务 ID 续接                   |
 
-`research_delegate` 前台等待结果，期间显示进度并支持取消；不同工具调用可并行，默认每个 runtime 同一项目最多两个。它不是脱离 TUI 的后台作业服务。主会话退出或 `/reload` 时取消正在运行的子任务，记录保留。
+`research_delegate` 前台等待结果，期间显示进度并支持取消；不同工具调用可并行。同一项目的活动 T 子任务与 J 后台任务合计默认最多两个。它不是脱离 TUI 的后台作业服务。主会话退出或 `/reload` 时取消正在运行的子任务，记录保留。
 
-主会话和子会话都使用相同 Skills；子会话只加载选定的能力以及显式配置的扩展，不复制父会话历史。子会话继承主会话选中的模型和实时模型连接，包含主会话已经配置的自定义 provider。
+委派工具现在必须提供 checklist 的 `moduleId`。子任务完成后由主会话验收模块。主会话和子会话都使用相同 Skills；子会话只加载选定的能力以及显式配置的扩展，不复制父会话历史。子会话继承主会话选中的模型和实时模型连接，包含主会话已经配置的自定义 provider。
 
 ## 七类能力
 
@@ -94,7 +110,7 @@ project/
 
 初始化只创建目标、状态和必要运行目录。子任务成果目录由运行器分配，避免并行任务写入同一位置；子任务仍只写分配目录，主会话负责将成果整合到上述阶段目录，只读评审由主会话保存和渲染。每次续接创建新的 attempt 目录，保留历史输出；续接的是相同会话。
 
-`handoff.md` 是可阅读的结果摘要；`task.json` 保存状态、会话位置、目标版本摘要和使用量。`completed` 表示子任务提交了交接，不保证科研结论正确；主会话需按实际证据采纳。没有 `research_finish` 的普通结束只记为 `partial`。目标在执行期间变化时，结果也降为 `partial`，需要重新核对。
+`handoff.md` 是可阅读的结果摘要；`task.json` 保存状态、会话位置、目标版本摘要和使用量。`completed` 表示子任务提交了交接，不保证科研结论正确；主会话需按实际证据采纳。没有 `research_finish` 的普通结束只记为 `partial`。运行期间 `BRIEF.md` 变化会使原 `completed` 结果降为 `partial`，需要重新核对；通过清单协议改变全局目标则须先结束或取消活动任务。
 
 建议版本管理四个阶段目录及 `research/` 中的目标、状态和证据，按项目情况忽略 `.research/`、大型数据、模型及缓存。不要把认证信息放进研究文件。
 
@@ -148,8 +164,9 @@ python3 <package-dir>/skills/research-report/scripts/report_generation.py compil
 npm ci --ignore-scripts
 npm run check
 npm run pack:check
+npm run test:tui  # Linux + Python 3，离线真实终端冒烟
 ```
 
 自动化测试通过真实 Pi SDK 执行工具与持久化会话，模型响应由本地确定性测试 provider 提供，不调用付费模型。它验证运行机制；实际研究质量需要用你们的任务和模型另行评估。
 
-进一步阅读：[架构与交接协议](docs/architecture.md) · [验证说明](docs/validation.md) · [可选增量路线](docs/roadmap.md)。
+进一步阅读：[框架理解与维护指南](docs/framework-guide.md)（主会话流程、工具、模块、子会话、后台任务与排障）· [架构与交接协议](docs/architecture.md) · [验证说明](docs/validation.md) · [可选增量路线](docs/roadmap.md)。

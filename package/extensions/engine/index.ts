@@ -1,3 +1,4 @@
+import { scopeBash } from "../researcher/boundaries.ts";
 /** Adapted from the supplied engine: retain method → plan → execute/review → report,
  * but use bounded SDK sessions, per-runtime state, cancellation and durable evidence. */
 import { randomUUID } from "node:crypto";
@@ -93,6 +94,15 @@ export class EngineCore {
         const result = await runSdk({
           cwd: work, host, signal: controller.signal, maxTurns: writable ? 40 : 20,
           sessionDir: workspacePath(root, "experiments/sessions"),
+          factories: [(pi) => { pi.on("tool_call", (event) => {
+            if (event.toolName === "bash") scopeBash(work, event.input as { command?: string });
+            if (["write", "edit"].includes(event.toolName)) {
+              try {
+                const p = workspacePath(work, String((event.input as { path?: string }).path ?? ""));
+                if (["plan.json", "progress.json", "engine.lock"].some(n => p === join(work, n)) || p.startsWith(join(work, "runs") + "/") || p.startsWith(join(work, "sessions") + "/")) return { block: true, reason: "Engine runtime records are protected" };
+              } catch (e) { return { block: true, reason: String(e) }; }
+            }
+          }); }],
           tools: writable ? ["read", "grep", "find", "ls", "write", "edit", "bash"] : ["read", "grep", "find", "ls"],
           prompt: `You are performing engine phase ${name}. Work only inside ${work}. Do not invoke other agents. Do not change method.md, plan.json, progress.json or prior run records.\n\n${prompt}`,
           onCreated: (session) => { sessionFile = session.sessionFile; },

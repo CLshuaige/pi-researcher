@@ -1,15 +1,30 @@
 {
   "name": "@gewu/pi-researcher",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "A TUI-first research workspace with seven skills and bounded, resumable Pi child sessions",
   "type": "module",
   "license": "UNLICENSED",
-  "keywords": ["pi-package", "research"],
-  "engines": { "node": ">=22.19.0" },
-  "files": ["extensions", "skills", "docs", "examples", "README.md"],
+  "keywords": [
+    "pi-package",
+    "research"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "docs",
+    "examples",
+    "README.md"
+  ],
   "pi": {
-    "extensions": ["./extensions/researcher/index.ts"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions/researcher/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -26,6 +41,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "check": "npm run typecheck && npm test",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "test:tui": "python3 tests/tui-smoke.py"
   }
 }

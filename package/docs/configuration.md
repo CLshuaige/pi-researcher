@@ -16,7 +16,7 @@
 
 | 字段 | 含义 |
 |---|---|
-| `maxConcurrent` | 同一 Research runtime、同一项目的活动子任务上限，1–8。跨 Pi 进程不共享该计数。 |
+| `maxConcurrent` | 同一项目的活动 T 子任务与 J 后台任务合计上限，1–8，默认 2；从项目任务记录计算。闭环由项目 Controller 锁保护，不提供通用跨进程原子配额或 GPU 调度。 |
 | `timeoutMs` | 单次委派的总超时，包括实验 engine 的内部工作；1 秒至 24 小时。 |
 | `maxTurns` | 子会话模型请求上限，1–1000；压缩请求也计入。engine 内部有单独请求上限，但受外层总时间约束。 |
 | `childExtensions` | 显式加载的本地扩展路径；相对路径按配置层解析，不自动加载所有用户扩展。 |
@@ -30,7 +30,7 @@
 
 ## 搜索扩展
 
-已验证的三包组合及固定版本安装方法见 [检索接入](retrieval.md)。`/research capabilities` 或 `research_workspace(action: "capabilities")` 显示当前模型、认证是否配置、主会话实际工具和子任务预期工具，不发起模型或搜索请求。子任务启动时才核对实际加载工具，随后严格激活所选工具集合。
+已验证的三包组合及固定版本安装方法见 [检索接入](retrieval.md)。`/researcher capabilities` 显示当前模型、认证是否配置、主会话实际工具和子任务预期工具，不发起模型或搜索请求。子任务启动时才核对实际加载工具，随后严格激活所选工具集合。
 
 先安装并配置选定的搜索工具，找到它的实际入口文件。例如以下是结构示例，必须替换路径并核对已安装版本的工具名称：
 
@@ -56,6 +56,8 @@
 
 研究子会话的新 attempt 不自动重新执行旧实验。若要继续原 engine，应在新请求中明确给出旧 `method.md` 实验目录，并遵循 [engine 恢复说明](engine.md)。
 
-`/research stop` 只控制本 runtime 的活动任务；其他进程的任务不能凭一个状态文件被当成已停止。进程意外退出后，状态查看会将已确认死亡的 owner 显示为 `interrupted`，恢复时再取得任务锁。
+`/researcher stop`（或 `/research stop`）停止本 runtime 的闭环，取消活动 T/J 和定时器；`/researcher stop T-...` 或 `stop J-...` 只向指定的本 runtime 任务请求取消。其他进程的任务不能凭一个状态文件被当成已停止。进程意外退出后，状态查看会将已确认死亡的 owner/worker 显示为 `interrupted`。T 续接会重新取得任务锁；J 不自动续跑，需核对产物后重新启动。
+
+主闭环的 30 分钟、20 次自动续跑及无进展阈值目前在 Controller 中固定，不是本配置文件支持的字段。J 单独使用 `timeoutSeconds`，时间唤醒使用 `wakeAfterSeconds`。各层预算、等待与恢复关系见 [框架理解与维护指南](framework-guide.md)。
 
 目录和工具约束是协作边界，不是操作系统沙箱。Bash 和第三方扩展仍有 Pi 进程权限；需要强隔离时在独立容器/用户下运行。第一版不提供 GPU 调度、脱离 TUI 的存活承诺或跨进程并发配额。

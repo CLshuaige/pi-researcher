@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Usage } from "./types.ts";
 import { addUsage, sessionUsage } from "./usage.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 export interface SdkRunOptions {
   cwd: string;
@@ -65,7 +65,7 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
       ...(options.enableMcp ? [createMcpExtension()] : []),
       ...(options.factories ?? []), bridge,
     ],
-    appendSystemPrompt: ["You are a bounded research worker. Follow the supplied task and project constraints. Do not delegate or invoke another agent through tools or shell commands. Read only the relevant skills. Report missing evidence honestly. The engine's explicitly provided internal execution tools are the only exception to the no-delegation rule."],
+    appendSystemPrompt: ["You are a bounded research worker. Follow the supplied task and project constraints. Do not delegate or invoke another agent through tools or shell commands. Read only the relevant skills. Report missing evidence honestly. The engine's explicitly provided internal execution tools are the only exception to the no-delegation rule.", ...(options.skills ?? []).map(path => `Required skill instructions (${path}):\n${readFileSync(path, "utf8")}`)],
   });
   await loader.reload();
   const errors = loader.getExtensions().errors;

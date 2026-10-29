@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ResearchConfig, TaskRecord } from "./types.ts";
+import type { JobExit, JobRecord, ResearchConfig, TaskRecord } from "./types.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const DEFAULT_CONFIG: ResearchConfig = {
@@ -13,6 +13,15 @@ export const alive = (pid: number) => {
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 };
+
+/** Linux PID birth identity: never trust a recycled numeric PID. */
+export function processIdentity(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return fields[0] === 'Z' ? undefined : fields[19];
+  } catch { return undefined; }
+}
 
 /** Reject traversal and symlink escapes, including a not-yet-created leaf. */
 export function workspacePath(root: string, path: string): string {
@@ -81,7 +90,7 @@ export function readConfig(root: string, agentDir = getAgentDir()): ResearchConf
   }
   if (typeof config.enableMcp !== "boolean") throw new Error("enableMcp must be boolean");
   for (const name of [...config.extraTools, ...config.reviewerTools]) {
-    if (!/^[a-zA-Z0-9_.:-]+$/.test(name) || /subagent|research_delegate|research_workspace|codemode|tool_search/i.test(name)) {
+    if (!/^[a-zA-Z0-9_.:-]+$/.test(name) || /subagent|research_delegate|research_workspace|research_checklist|research_job|codemode|tool_search/i.test(name)) {
       throw new Error(`Use explicit non-delegating tool names: ${name}`);
     }
   }
@@ -140,6 +149,41 @@ export class ResearchStore {
   }
   lock(id: string): () => void {
     return acquireOwnerLock(join(this.taskPath(id), "owner.lock"));
+  }
+  jobPath(id: string) {
+    if (!/^J-[a-f0-9-]{36}$/.test(id)) throw new Error('Invalid job ID');
+    return this.path(`.research/jobs/${id}`);
+  }
+  saveJob(job: JobRecord) { atomicWrite(join(this.jobPath(job.id), 'job.json'), JSON.stringify(job, null, 2) + '\n'); }
+  readJob(id: string): JobRecord {
+    const job = JSON.parse(readFileSync(join(this.jobPath(id), 'job.json'), 'utf8')) as JobRecord;
+    if (job.version !== 1 || job.id !== id) throw new Error('Invalid job record');
+    if (job.status !== 'running') return job;
+    const exit = join(this.jobPath(id), 'exit.json');
+    if (existsSync(exit)) return { ...job, ...JSON.parse(readFileSync(exit, 'utf8')) as JobExit };
+    if (!job.workerPid || !job.workerIdentity || processIdentity(job.workerPid) !== job.workerIdentity) {
+      return { ...job, status: 'interrupted', error: 'Worker no longer exists; inspect artifacts before starting a new job' };
+    }
+    return job;
+  }
+  jobs(): JobRecord[] {
+    const dir = this.path('.research/jobs');
+    return existsSync(dir) ? readdirSync(dir).filter(id => /^J-[a-f0-9-]{36}$/.test(id)).map(id => this.readJob(id)).sort((a, b) => b.startedAt - a.startedAt) : [];
+  }
+  activeWork(moduleId?: string) {
+    return [...this.list(), ...this.jobs()].filter(t => t.status === 'running' && (!moduleId || t.moduleId === moduleId));
+  }
+  jobStatus(id: string) {
+    const job = this.readJob(id);
+    let logTail = '';
+    const path = this.path(job.logPath);
+    if (existsSync(path)) {
+      const size = statSync(path).size, buffer = Buffer.alloc(Math.min(size, 8192));
+      const fd = openSync(path, 'r');
+      try { const count = readSync(fd, buffer, 0, buffer.length, Math.max(0, size - buffer.length)); logTail = buffer.subarray(0, count).toString('utf8'); }
+      finally { closeSync(fd); }
+    }
+    return { ...job, logTail };
   }
   validateInputs(paths: string[]): string[] {
     return paths.map((path) => {
