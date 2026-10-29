@@ -1,47 +1,47 @@
 ---
 name: research-method
-description: Design experimental methods, execution steps, and role assignments from a research task, hypotheses, and existing knowledge through planning, critique, and synthesis. Use for method design and experimental feasibility assessment.
+description: 基于研究任务、假说与已有知识，通过规划、批评和综合整理设计实验方法、执行步骤与角色分工；适用于方法设计和实验可行性判断。
 ---
 
-# Method Design
+# 方法设计
 
-Turn a research task, hypotheses, and optional knowledge into experimental methods. Revise through a serial Planner → Critic discussion, then ask a Formatter to synthesize steps, order, resources, and role assignments. Follow the original three-role workflow without adding version locks, independent final review, or execution scheduling.
+把研究任务、假说和可选知识转成实验方法，通过“规划者 → 批评者”的串行讨论修订，再由“评估与格式化者”综合为步骤、顺序、资源和角色分工。沿用原有三角色设计，不增加版本锁定、独立复核或执行调度机制。
 
-Use Pi's `pi-subagents` extension for the full workflow when the user requests it or project instructions authorize delegation. Handle individual controls, metrics, or small revisions directly. When delegated one role, complete only that role and return without starting this workflow again.
+完整设计使用 Pi 的 `pi-subagents` 扩展；用户要求按本流程设计或项目指令授权委派时执行。仅讨论某个对照、指标或局部修改时可直接完成。被委派为其中一个角色时，只完成该角色任务并返回，不再启动本流程。
 
-## Prepare Inputs
+## 准备输入
 
-Read `research/BRIEF.md`, `research/STATE.md`, and user-specified research tasks, hypothesis files, and optional knowledge. Check the data, code, environment, and compute described in existing materials. Use actual paths rather than requiring the legacy names `task`, `idea`, and `knowledge`.
+先读 `research/BRIEF.md`、`research/STATE.md` 及用户指定的研究任务、假说文件和可选知识。检查已有材料中描述的数据、代码、环境与计算资源，沿用实际路径，不要求改名为旧框架的 `task`、`idea`、`knowledge`。
 
-- The research task must be clear. Use existing materials when they establish the objective; otherwise establish it first.
-- The upstream hypothesis file is usually `research/hypotheses/<run-name>/idea.md`. Supply the entire Markdown, including `[SELECTED]` and alternatives, for the Planner to interpret. Do not additionally require hypothesis IDs or version locks.
-- If no hypothesis file is available, note `No idea available` and continue from the task. A hypothesis supplied directly by the user is also valid input.
-- Omit missing optional knowledge. If it contains a `Source Metadata Appendix`, pass only the preceding body to the roles and preserve the original file.
-- This stage does not require a separate literature review. Its basis primarily comes through hypotheses and knowledge. Include other materials explicitly requested by the user.
-- Record actual time, data, compute, tools, and technical constraints. Respect a specified `max_debate_iterations`; this skill defaults to 5 otherwise. One round consists of one plan and one critique; the Formatter runs separately after the loop.
+- 研究任务必须明确；已有材料能够确定目标时直接使用，缺少时先补齐。
+- 上游假说文件通常是 `research/hypotheses/<run-name>/idea.md`。将整份 Markdown 作为输入，包含 `[SELECTED]` 和其他候选，由 Planner 理解选择标记；不额外要求假说 ID 或版本锁定。
+- 缺少假说文件时注明 `No idea available`，仍可基于任务设计方法；用户已直接给出的假说也可作为输入。
+- 可选知识缺失时省略；包含 `Source Metadata Appendix` 时，只将此前正文传给角色，保留原文件。
+- 本阶段不要求单独读取文献综述；依据主要来自假说和知识。用户明确要求使用的其他材料一并传入。
+- 记录实际时间、数据、算力、工具和技术约束。沿用指定的 `max_debate_iterations`；未指定时本技能默认 5。一轮是一次规划加一次批评，Formatter 在循环后单独执行。
 
-The parent creates `research/methods/<run-name>/`, choosing a new name if the directory exists. Write `context.md` with the task, complete hypotheses, optional knowledge, resource constraints, input locations, and round limit. Children read materials, return designs, and write assigned outputs without changing shared state, implementing code, or running experiments.
+主会话在 `research/methods/<run-name>/` 建立成果目录；已有目录使用新名字，保留历史。写 `context.md`，包含任务、完整假说、可选知识、资源约束、输入位置和轮数上限。子角色只读取材料、返回方法设计并写指定输出，不修改共享状态、实现代码或运行实验。
 
-Before execution, read [Pi calls and handoff](references/pi-subagents.md). Use the [role prompts](references/roles.md), and read [outputs and execution handoff](references/output.md) before calling the Formatter and finalizing. Resolve references relative to this skill directory; write artifacts in the research project.
+执行前阅读 [Pi 调用与交接](references/pi-subagents.md)。角色任务见 [角色提示](references/roles.md)，Formatter 调用和收尾前阅读 [输出与执行交接](references/output.md)。技能参考文件相对本技能目录解析，成果写在研究项目中。
 
-## Serial Workflow
+## 串行设计
 
-The parent controls order and counting, starting with `debate_count = 0`. The three logical roles use the same model configuration and differ through their tasks. The builtin `delegate` can serve all roles; custom agents with matching names are unnecessary.
+主会话控制顺序和计数，开始时设置 `debate_count = 0`。三个逻辑角色使用相同模型配置，通过角色任务区分；均可使用内置 `delegate`，无需新增同名自定义 agent。
 
-1. **Planner plans or revises.** Read the task, complete hypotheses, and knowledge. Design experiments that can support or refute the hypothesis, explaining baselines, controls, measurement, steps, dependencies, and interpretation. Prioritize scientific validity, then adjust cost and scope in response to criticism. Use the [Planner prompt](references/roles.md#planner).
-2. **Critic reviews.** Read the complete current plan and prior discussion. Examine step clarity, tool and resource availability, technical difficulties, failure risks, and scientific validity. Return revision suggestions and a routing marker. Use the [Critic prompt](references/roles.md#critic).
-3. **Parent routes.** After the Critic completes, increment `debate_count` by 1. End the debate if its response contains `READY` and does not contain `NEEDS_REVISION`, or if the round limit is reached. Otherwise return the criticism to the Planner for another round. Do not plan experiments in parallel.
-4. **Formatter synthesizes and structures.** Give the third role the initial materials, all plans and critiques, and actual round count. It combines the Planner's design and the Critic's simplification suggestions into complete method JSON. It may adjust the design during synthesis, without an extra final review or candidate scoring. Use the [Formatter prompt](references/roles.md#formatter). Run this step after either an early exit or exhaustion of the round limit.
-5. **Parent saves the method.** Read the Formatter JSON and save `method.json` and `method.md` following the [output contract](references/output.md). Preserve raw output and all discussion. Completing method design does not mean experiments are complete.
+1. **Planner 规划或修订。** 阅读任务、完整假说与知识，设计能支持或否定假说的实验，说明基线、对照、测量、步骤、依赖和结果解释。先保证科学有效性，后续根据批评调整成本和范围。使用 [Planner 提示](references/roles.md#planner)。
+2. **Critic 评审。** 阅读本轮完整方案和已有讨论，检查步骤清晰度、工具和资源可得性、技术困难、失败风险及科学有效性，给出修改建议和结束标记。使用 [Critic 提示](references/roles.md#critic)。
+3. **主会话路由。** Critic 完成后，`debate_count += 1`。回复包含 `READY` 且不包含 `NEEDS_REVISION`，或达到轮数上限时，结束辩论；否则将批评交回 Planner，开始下一轮。不按实验并行规划。
+4. **Formatter 综合与格式化。** 将初始材料、全部规划与批评、实际轮数交给第三个角色。它综合 Planner 设计与 Critic 的简化建议，输出完整方法 JSON；允许在综合中调整方案，不另加一轮最终评审或候选评分。使用 [Formatter 提示](references/roles.md#formatter)。提前结束或达到轮数上限后均执行此步。
+5. **主会话保存方法。** 读取 Formatter JSON，整理为 `method.json` 和 `method.md`，字段和文档内容遵循 [输出约定](references/output.md)。保留原始输出及全部讨论，不把方法设计完成称为实验完成。
 
-Save complete round outputs as `round-01-planner.md`, `round-01-critic.md`, and so on. Every call explicitly supplies `context.md` and actual paths to all prior discussion. File handoffs provide the shared context of the original group chat. The Formatter also needs all plans and critiques, not only the final comment.
+每轮保存 `round-01-planner.md`、`round-01-critic.md` 等完整输出。每次调用显式给出 `context.md` 及此前全部讨论的实际路径，用文件交接提供原组聊中的共享上下文。Formatter 同样需要全部规划与批评，不能只得到最后一条意见。
 
-Design roles analyze supplied materials by default without searching, implementing, or testing the method. State assumptions and gaps when resource information is missing. Do not present tool availability, expected runtime, or resource estimates as verified. The parent can collect additional materials when the user needs further checks.
+设计角色默认分析给定材料，不自行检索、实现或测试方案。缺少资源信息时写明假设与缺口，不把工具可得性、预计运行时间或资源估计说成已经验证。需要另行核查时，由主会话按用户需要补充材料。
 
-## Completion and Downstream Handoff
+## 结束与下游交接
 
-Deliver the method overview, steps and order, Engineer/RA assignments, resources, key criticisms, actual round count, termination reason, and artifact paths. The Formatter also runs after the round limit; preserve unresolved comments without adding approval states.
+交付方法概述、步骤与顺序、Engineer/RA 分工、资源、关键批评、实际轮数、结束原因和成果路径。轮数耗尽也进入 Formatter；尚未解决的意见如实保留，不额外引入批准状态。
 
-Engineer covers code, data processing, analysis, automation, and technical validation. RA covers annotation, interviews, subjective evaluation, or manual experiments requiring a person. These are execution assignments in the method, not children to launch here; they do not establish available personnel or completed tasks.
+Engineer 表示代码、数据处理、分析、自动化和技术验证；RA 表示需要真人参与的标注、访谈、主观评估或手工实验。它们是方法产出的执行角色，不是此处要启动的子代理，也不代表已有对应人员或任务已经完成。
 
-When the user requests experiments, pass `method.md` and relevant inputs to `research-experiment`. For engine use, follow [engine integration](../../docs/engine.md) and prepare `method.md` in the assigned experiment directory, describing file boundaries, environment, execution approach, acceptance evidence, and stopping conditions. Reuse a suitable existing environment. Do not automatically call `engine_start` during design or perform RA steps on behalf of a person. The parent may update the method and next steps in `research/STATE.md`.
+用户要求继续实验时，将 `method.md` 及相关输入交给 `research-experiment`。使用 engine 时，按 [engine 接入](../../docs/engine.md) 在分配的实验目录准备 `method.md`，说明文件边界、环境、运行方式、验收证据和停止条件；已有环境适用时复用。设计阶段不自动调用 `engine_start`，不代替真人完成 RA 步骤。主会话按需更新 `research/STATE.md` 的方法与下一步。

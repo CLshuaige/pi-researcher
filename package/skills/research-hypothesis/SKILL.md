@@ -1,43 +1,43 @@
 ---
 name: research-hypothesis
-description: Construct research hypotheses from a task, literature, and existing knowledge through proposal, critique, and evaluation. Use to explore research directions, compare candidates, or revise hypotheses.
+description: 基于研究任务、文献与已有知识，通过提出、批评和评估整理构建研究假说；适用于探索研究方向、比较候选或修订已有假说。
 ---
 
-# Hypothesis Construction
+# 假说构建
 
-Turn a research task, literature review, and optional knowledge into research candidates. Revise them through a serial Proposer → Critic discussion, then ask a Formatter to evaluate them. The parent ranks, selects, and saves the results. Follow the original three-role workflow without adding reviewers, candidate approval gates, or automatic experiments.
+把研究任务、文献综述和可选知识转成若干研究候选，通过“提出者 → 批评者”的串行讨论修订，再交给“评估与格式化者”评分，由主会话排序、选择并保存结果。复现原有三角色思路，不引入额外评审角色、候选批准门禁或自动实验。
 
-Use Pi's `pi-subagents` extension for the full workflow when the user requests it or project instructions authorize delegation. Handle questions about an individual hypothesis or small revisions directly; loading the skill alone does not start a team. When delegated one role, complete only that role and return without starting this workflow again.
+完整构建使用 Pi 的 `pi-subagents` 扩展；用户要求按本流程构建或项目指令授权委派时执行。仅询问某个假说或做局部修改时可直接完成，不因技能被加载就启动团队。被委派为其中一个角色时，只完成该角色任务并返回，不再启动本流程。
 
-## Prepare Inputs
+## 准备输入
 
-Read `research/BRIEF.md`, `research/STATE.md`, and user-specified tasks, reviews, knowledge, and existing negative results. Use actual project paths rather than requiring the legacy names `task`, `literature`, and `knowledge`.
+先读 `research/BRIEF.md`、`research/STATE.md` 及用户指定的任务、综述、知识和已有负结果。沿用项目实际路径，不要求把文件改名为旧框架的 `task`、`literature`、`knowledge`。
 
-- The research task must be clear. Use existing materials when they establish the objective; otherwise establish it first.
-- If no literature review is provided, note that and continue. Omit missing optional knowledge. When knowledge contains a `Source Metadata Appendix`, pass only the preceding body to the roles and preserve the original file.
-- Record time, data, compute, and technical constraints. The Critic's references to 2–4 weeks and 100 GPU hours are discussion benchmarks, not replacements for the user's constraints.
-- Default to `max_debate_iterations = 5` unless the user specifies otherwise. One round consists of one proposal and one critique; the Formatter runs separately after the loop.
+- 研究任务必须明确；已有材料可以确定目标时直接使用。缺少任务时先补齐目标。
+- 缺少综述时注明“未提供文献综述”，仍可继续；可选知识缺失时省略。有 `Source Metadata Appendix` 时，传给角色的知识正文截取到该附录之前，保留原文件。
+- 记录任务中的时间、数据、算力及技术条件。批评提示中的“2–4 周”“100 GPU 小时”仅为参考尺度，不替代用户实际约束。
+- 默认 `max_debate_iterations = 5`；用户指定时沿用。这里一轮是一次提出加一次批评，Formatter 在循环后单独执行。
 
-The parent creates `research/hypotheses/<run-name>/` for this run, choosing a new name if the directory exists. Write `context.md` with the task, review, optional knowledge, constraints, input paths, and round limit. Children read inputs, return results, and write their assigned outputs without changing the shared objective or state.
+主会话在 `research/hypotheses/<run-name>/` 下建立本次成果目录；已有目录使用新名字，保留历史。写 `context.md`，包含任务、综述、可选知识、约束、输入路径和轮数上限。子角色只读取输入、返回结果并写指定输出，不修改共享目标与状态。
 
-Before execution, read [Pi calls and context handoff](references/pi-subagents.md). Use the [role prompts](references/roles.md), and read the [output contract](references/output.md) before finalizing results. Resolve these references relative to this skill directory; write research artifacts in the research project.
+执行前阅读 [Pi 调用与上下文交接](references/pi-subagents.md)。三个角色的任务指令见 [角色提示](references/roles.md)，整理结果前阅读 [输出约定](references/output.md)。这些文件均相对本技能目录解析；研究成果写在研究项目中。
 
-## Serial Workflow
+## 串行构建
 
-The parent controls order, counting, and finalization, starting with `debate_count = 0`. All three logical roles use the same model configuration and differ through their tasks. The builtin `delegate` can serve every role; custom agents with matching role names are unnecessary.
+主会话控制顺序、计数和收尾，开始时设置 `debate_count = 0`。三个逻辑角色使用相同模型配置，差异来自角色任务；可直接使用内置 `delegate`，不必安装同名自定义 agent。
 
-1. **Proposer proposes or revises.** In the first round, generate 2–3 candidates with different directions or risk profiles, explaining their literature basis, scientific value, and implementation components. In later rounds, read all previous discussion, respond to criticism, and revise the candidates. Use the [Proposer prompt](references/roles.md#proposer).
-2. **Critic reviews.** Read the complete current proposal and prior discussion. Assess scientific value, time, compute, data, technical difficulties, failure risks, and the lowest-cost validation approach. Return criticism and a routing marker. Use the [Critic prompt](references/roles.md#critic).
-3. **Parent routes.** After the Critic completes, increment `debate_count` by 1. End the debate if its response contains `READY` and does not contain `NEEDS_REVISION`, or if the round limit is reached. Otherwise return the feedback to the Proposer for another round. Do not review candidates in parallel or treat READY as approval of an individual candidate.
-4. **Formatter evaluates and structures.** Give the third role the initial materials, actual round count, and all proposals and critiques. It retains valuable candidates, evaluates scientific value, novelty, feasibility, and validation clarity, assigns scores from 0 to 1, and returns JSON. Use the [Formatter prompt](references/roles.md#formatter). Run this step after either an early exit or exhaustion of the round limit.
-5. **Parent ranks and saves.** Parse the Formatter's `ideas`, sort by descending `score`, select index 0 by default, and save `idea.json` and `idea.md` using the [output contract](references/output.md). Preserve alternatives and discussion. Selection follows the Formatter's scores without an additional filter based on the Critic's marker.
+1. **Proposer 提出或修订。** 第一轮给出 2–3 个方向或风险特征不同的候选，说明文献依据、科学价值与实现组成。后续轮次读取全部已有讨论，回应批评、修改候选。使用 [Proposer 提示](references/roles.md#proposer)。
+2. **Critic 评审。** 收到本轮完整提案及已有讨论，检查科学价值、时间、算力、数据、技术难点、失败风险和最低成本验证方案，输出批评与结束标记。使用 [Critic 提示](references/roles.md#critic)。
+3. **主会话路由。** Critic 完成后，`debate_count += 1`。其回复包含 `READY` 且不包含 `NEEDS_REVISION`，或计数达到轮数上限时，结束辩论；否则将反馈交回 Proposer，进入下一轮。不要按候选并行开评审，也不把 READY 解释成某个候选的独立批准。
+4. **Formatter 评估与整理。** 将初始材料、实际辩论轮数和所有提案、批评交给第三个角色。它保留讨论中有价值的候选，按科学价值、创新性、可行性和验证清晰度重新评估，给出 0–1 分数并输出 JSON。使用 [Formatter 提示](references/roles.md#formatter)。此步在提前结束或用完轮数后均执行。
+5. **主会话排序与保存。** 解析 Formatter 的 `ideas`，按 `score` 降序排序，默认选择索引 0，并按 [输出约定](references/output.md) 保存 `idea.json`、`idea.md`。保留其他候选和讨论记录；排序选择依据是 Formatter 分数，不额外按 Critic 标记过滤。
 
-Save complete round outputs as `round-01-proposer.md`, `round-01-critic.md`, and so on, maintaining an ordered file list. Pi children do not automatically receive group chat history. Each task must explicitly include the actual paths to initial materials and all preceding discussion. The Formatter also needs the full discussion, not only the final critique.
+每轮将完整提案和批评保存为 `round-01-proposer.md`、`round-01-critic.md` 等，并按轮次维护文件列表。Pi 子会话不自动获得组聊历史，主会话必须在每次任务中显式传递初始材料和此前讨论的实际路径。Formatter 也必须得到全部讨论，不能只得到最后一条评语。
 
-Roles discuss supplied materials and do not search or run experiments by default. If the user needs additional literature checks, use the existing `research-literature` skill to collect materials first. Do not present model inference as verified novelty, confirmed data availability, or measured resource use.
+这些角色基于已提供材料讨论，默认不自行检索或运行实验。用户另需补查文献时，可先按已有 `research-literature` 技能收集材料再交给角色；不得把模型推测称为已核实的新颖性、数据可得性或实测资源消耗。
 
-## Completion and Handoff
+## 结束与交接
 
-Deliver the selected candidate, score and selection rationale, alternatives, actual round count, and artifact paths. Reaching the round limit still leads to the Formatter. Preserve unresolved criticisms and do not equate the highest score with validation.
+向用户交付选中候选、分数与选择理由、其他候选、实际辩论轮数和成果路径。达到轮数上限同样会进入 Formatter；如仍有未解决的批评，在说明中如实保留，不把最高分等同于已验证。
 
-When method design is needed, pass the selected content, basis, components, strengths, weaknesses, and task constraints to `research-method`. Continue only when requested by the user or required by the existing workflow. The parent may update the selection and next steps in `research/STATE.md`; children return recommendations only.
+需要继续方法设计时，把选中内容、依据、组成、优缺点及任务约束交给 `research-method`。仅在用户要求或已有工作流需要时继续该技能。主会话按需更新 `research/STATE.md` 中的选择与下一步；子角色只返回建议。

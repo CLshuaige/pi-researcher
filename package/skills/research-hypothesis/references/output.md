@@ -1,32 +1,32 @@
-# Output Contract
+# 输出约定
 
-These are this skill's file conventions, not a builtin Pi tool protocol. Other skills need no changes, and the legacy Python classes are not required.
+这是本技能的文件约定，不是 Pi 内置工具协议。不要求修改其他技能或复用旧框架的 Python 类。
 
-## Formatter Output
+## Formatter 输出
 
-The Formatter saves complete JSON to `formatter.json` in the run directory. The top-level `ideas` array contains candidates with the following fields. This example shows the shape of one entry; actual candidates follow the discussion.
+Formatter 将完整 JSON 保存到本次运行目录的 `formatter.json`。顶层 `ideas` 是候选列表，每个候选包含以下字段；下面仅演示单个条目的形状，实际按讨论结果输出候选。
 
 ```json
 {
   "ideas": [
     {
-      "content": "Complete hypothesis or research proposal, including expected observations and validation ideas",
+      "content": "完整的假说或研究方案描述，包括预期观察及验证思路",
       "score": 0.8,
-      "basis": "Scientific basis and locations in literature or existing results; identify inferences",
-      "components": ["Main implementation component or step"],
-      "strengths": ["Strength in scientific value, novelty, or validation"],
-      "weaknesses": ["Resource risk, evidence limitation, or unresolved issue"],
+      "basis": "关键科学依据、对应的文献或已有结果位置；指出推断部分",
+      "components": ["主要实现组成或步骤"],
+      "strengths": ["科学价值、创新性或验证方面的优势"],
+      "weaknesses": ["资源风险、证据局限或尚未解决的问题"],
       "round": 1
     }
   ]
 }
 ```
 
-`content` and `basis` are strings. `components`, `strengths`, and `weaknesses` are arrays of strings. `score` is a number from 0 to 1. `round` identifies when the candidate appeared in discussion, starting at 1. Preserve stable source identifiers or local material locations; temporary search cache IDs are not evidence references.
+`content`、`basis` 为字符串，`components`、`strengths`、`weaknesses` 为字符串数组，`score` 为 0–1 数值。`round` 是该候选在讨论中出现的轮次，从 1 开始。保留引用的稳定标识或本地材料位置，不把临时搜索缓存 ID 当作证据来源。
 
-## Parent Results
+## 主会话结果
 
-The parent reads the Formatter JSON and sorts candidates by descending `score`, preserving the Formatter's order for ties. Save the ranked result as `idea.json`:
+主会话读取 Formatter JSON，按 `score` 降序排列候选。同分时保留 Formatter 的原有顺序。将排序结果保存为 `idea.json`：
 
 ```json
 {
@@ -36,19 +36,19 @@ The parent reads the Formatter JSON and sorts candidates by descending `score`, 
 }
 ```
 
-Populate `candidates` with the actual ranked candidate objects. The empty array only illustrates the field; it is not a successful deliverable. Set `debate_rounds` to the actual number of completed Critic rounds rather than copying the example. Select the highest score by default with `selected_index = 0`. Do not add approval states, candidate versions, or score thresholds.
+这里 `candidates` 必须填入实际排序后的候选对象，空数组只是字段示意，不是可交付的成功结果；`debate_rounds` 填实际完成的 Critic 轮数。不要直接照抄示例中的数字。默认选择最高分，即 `selected_index = 0`；不另加批准状态、候选版本或评分阈值。
 
-Also generate `idea.md` with at least:
+同时生成 `idea.md`，至少包含：
 
-- The research objective, input locations, and actual round count.
-- All candidates ranked by descending score, with `[SELECTED]` in the first heading.
-- Each candidate's content, score, basis, components, strengths, weaknesses, and round of appearance.
-- Selection rationale, remaining limitations, and whether READY or the round limit ended the discussion.
+- 本次研究目标、输入材料位置及实际辩论轮数。
+- 按分数降序列出的全部候选，第一项标题加 `[SELECTED]`。
+- 每项的内容、分数、依据、实现组成、优势、弱点和出现轮次。
+- 选中理由、尚存限制，以及本次因 READY 还是轮数上限结束讨论。
 
-If Formatter output cannot be parsed or contains no actual candidates, report incomplete generation. Preserve discussion and raw output rather than inventing a selected hypothesis.
+Formatter 无法解析或没有实际候选时，说明结果未完整生成，保留讨论和原始输出，不编造一个选中假说。
 
-## Downstream Use
+## 后续使用
 
-Method design uses the complete `candidates[selected_index]` content together with the task and constraints in `context.md`. The highest score represents selection within this discussion; it does not establish verified novelty, measured resources, or experimental validation. Retain rejected alternatives and criticism in the run directory for later reference.
+供方法设计使用的是 `candidates[selected_index]` 的完整内容，以及 `context.md` 中的任务和约束。最高分是本轮讨论下的选择，不代表新颖性已检索证实、资源已实测或假说已通过实验。被舍弃的候选与批评仍留在本次运行目录中，供后续回看。
 
-Do not additionally create fixed-number `Hxxx.md` files unless the project already uses that convention. In that case, the parent may place the selected result in the corresponding file and link to this run's `idea.md`.
+不额外创建固定编号的 `Hxxx.md`；项目已有该约定时，可由主会话把选中结果整理到相应文件，并链接本次 `idea.md`。

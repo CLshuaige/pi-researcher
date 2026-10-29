@@ -1,59 +1,59 @@
-# Pi Calls and Context Handoff
+# Pi 调用与上下文交接
 
-Reuse the user's configured `pi-subagents` through ordinary model tool calls. These examples target the installed 0.84.0 interface; for other versions, follow the actual schema and `guide`. No extension or global agent configuration changes are needed.
+本流程复用用户已配置的 `pi-subagents`，通过普通模型工具调用执行。以下按已安装的 0.84.0 接口编写；其他版本以实际 schema 与 `guide` 为准，无需修改扩展或全局 agent 配置。
 
-## Check Capabilities
+## 确认能力
 
-Once the user or project instructions authorize this workflow, call `subagents_enable({})` if only that loader is visible. Use `subagent` on the next model request. Activation itself does not launch a role.
+用户或项目指令授权本流程后，若只看到 `subagents_enable`，先调用 `subagents_enable({})`，下一次模型请求再调用 `subagent`。激活工具本身不启动角色。
 
-Inspect available agents when needed:
+按需查看已有代理：
 
 ```json
 {"action":"list","options":{"capabilities":true}}
 ```
 
-For interface help, use `subagent({ action: "guide", options: { topic: "tool-reference/execution-parameters" } })`. For setup issues, use `subagent({ action: "doctor" })`.
+接口帮助使用 `subagent({ action: "guide", options: { topic: "tool-reference/execution-parameters" } })`，配置异常可用 `subagent({ action: "doctor" })`。
 
-The builtin `delegate` can serve all three logical roles. It inherits the parent model by default and receives role prompts through task. Pi agents named MethodPlannerAgent, MethodCriticAgent, and MethodFormatterAgent are unnecessary. If the project overrides delegate, check actual capabilities and select an existing agent able to read materials and return role results.
+三个逻辑角色均可由内置 `delegate` 承载：默认继承父模型，通过 task 接收不同角色提示。不需要存在名为 MethodPlannerAgent、MethodCriticAgent、MethodFormatterAgent 的 Pi agent。若项目覆盖了 delegate，检查实际能力后选择能够读材料和返回角色结果的现有代理。
 
-## Example Call
+## 一次调用示例
 
-The following parameters are passed to `subagent`. Replace project, skill, and run paths with actual absolute paths. The parent creates the run directory before launching.
+以下是传给 `subagent` 的参数。将项目、技能和运行目录替换为真实绝对路径，调用前由主会话建好本次成果目录。
 
 ```json
 {
   "agent": "delegate",
   "cwd": "/absolute/project",
-  "task": "You are the Planner for this method-design run. Complete only round 1 without spawning children. Read and follow Shared Inputs and Planner in /absolute/skill/research-method/references/roles.md. Initial materials are in /absolute/project/research/methods/run-name/context.md. This is round one, with no prior discussion. Return a complete experimental design with baselines, controls, measurement, steps, dependencies, Engineer/RA assignments, expected outputs, and resources. Only design; do not implement or run experiments. Write the complete role result only to the assigned output file; do not change shared state or other files.",
+  "task": "你是本次方法设计的 Planner，只完成第 1 轮规划，不启动子代理。读取 /absolute/skill/research-method/references/roles.md 的共同输入与 Planner 部分并执行。初始材料在 /absolute/project/research/methods/run-name/context.md；这是第一轮，无历史讨论。返回完整实验设计，包括基线、对照、测量、步骤、依赖、Engineer/RA 分工、预期产物及资源。仅设计，不实现或运行实验；只将完整角色结果写到指定 output 文件，不修改共享状态或其他文件。",
   "output": "/absolute/project/research/methods/run-name/round-01-planner.md",
   "options": {"context":"fresh"}
 }
 ```
 
-`output` is the file binding; mentioning a filename only in task does not bind it. The child writes its assigned output or returns complete text for runtime persistence. Read the actual output location returned by the tool and update the handoff list if paths are mapped.
+`output` 才是文件输出绑定，不能只在 task 中提文件名。子代理写指定输出或返回完整正文后，由运行时保存；完成后读取工具返回的实际文件位置，发生路径映射时更新交接列表。
 
-Default asynchronous calls return a launch receipt. Wait for native completion before reading results and starting the next role. You can prepare later tasks meanwhile, but do not critique an unfinished plan. Do not poll or call `bg_wait` for ordinary children. Set `async: false` only when blocking is necessary.
+默认异步调用返回的是启动回执，等原生完成通知后再读取结果和启动下一角色。期间可以准备后续任务，不提前批评未完成的规划。普通子代理不循环轮询或调用 `bg_wait`；只有确需阻塞时才设置 `async: false`。
 
-## Materials and Call Order
+## 材料与调用顺序
 
-Pi child sessions do not automatically broadcast group chat messages. Use fresh delegate sessions with explicit initial materials and discussion files to provide the original workflow's shared context.
+Pi 子会话不会自动广播组聊消息。每次使用新的 delegate 会话，并显式传递初始材料和讨论文件，即可提供原流程的共同讨论上下文。
 
-| Call | Required materials | Assigned output |
+| 调用 | 必须提供的材料 | 指定输出 |
 | --- | --- | --- |
-| Round 1 Planner | context, Planner prompt | round-01-planner.md |
-| Round 1 Critic | context, current plan, Critic prompt | round-01-critic.md |
-| Round N Planner | context, all plans and critiques from rounds 1 through N−1, Planner prompt | round-NN-planner.md |
-| Round N Critic | context, all prior discussion, current plan, Critic prompt | round-NN-critic.md |
-| Formatter | context, all plans and critiques, actual round count, Formatter prompt, output contract | formatter.json |
+| 第 1 轮 Planner | context、Planner 提示 | round-01-planner.md |
+| 第 1 轮 Critic | context、本轮规划、Critic 提示 | round-01-critic.md |
+| 第 N 轮 Planner | context、第 1 至 N−1 轮全部规划与批评、Planner 提示 | round-NN-planner.md |
+| 第 N 轮 Critic | context、此前全部讨论、本轮规划、Critic 提示 | round-NN-critic.md |
+| Formatter | context、全部规划与批评、实际轮数、Formatter 提示、输出约定 | formatter.json |
 
-List actual file paths in every task, not just a directory. The parent reads the Critic's response and applies the text routing in SKILL.md, then calls the Formatter separately after the loop. Legacy top-level `chain`, `parallel`, and `tasks` parameters are unnecessary, as is a workflow script.
+每次 task 列出实际文件路径，不只给目录。主会话读 Critic 正文后执行 SKILL.md 中的文本路由，循环后单独调用 Formatter。不使用旧版顶层 `chain`、`parallel` 或 `tasks` 参数，也无需工作流脚本。
 
-All roles use the parent model, so no `model` override is needed. The builtin delegate does not automatically inherit every extension tool. This workflow only requires reading supplied materials and returning designs, without search tools, engine, or execution agents. Roles do not automatically resume previous runs. Reruns use new artifact directories; history participates only when explicitly supplied as input.
+三个角色均沿用父模型，无需传 `model`。内置 delegate 不自动继承所有环境扩展工具；本流程只要求读取给定材料与返回设计，不需要搜索工具、engine 或执行代理。角色不自行续接旧运行；重跑使用新的成果目录，历史只在显式提供后作为材料参与。
 
-## Research Workspace Integration
+## 与研究工作区配合
 
-Use `research_workspace` to inspect state or capabilities when useful; it is not a mandatory design stage. `research_delegate` is a different bounded-task interface with different inputs, output directories, and `research_finish` handoffs. Do not mix its parameters with these calls. This workflow requires no research.json changes.
+`research_workspace` 可按需查询工作区状态或能力，不是设计的强制前置阶段。`research_delegate` 属于另一套有界研究子任务接口，其输入、输出目录和 `research_finish` 与 `subagent` 不同，不混用上述参数，也不需要为本流程修改 research.json。
 
-If subagent tools are unavailable, explain that the three-child workflow cannot run. When the user permits direct work, use the same role sequence while identifying it as a single-session design. Preserve existing plans and critiques when a launch fails or complete results are missing. Report the actual failure rather than treating a successful launch as a completed method.
+若未提供 subagent 工具，说明无法运行三子会话流程；用户允许直接推演时，可以沿用相同角色顺序，但应说明是单会话设计。启动失败或缺少完整结果时，保存已有规划与批评并报告实际失败，不把启动成功当作方法生成完成。
 
-Interface references: [pi-subagents tool reference](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md), [Pi Skills](https://pi.dev/docs/latest/skills).
+接口参考：[pi-subagents 工具参考](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md)、[Pi 技能说明](https://pi.dev/docs/latest/skills)。
