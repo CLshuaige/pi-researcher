@@ -33,6 +33,7 @@ pi -e /absolute/path/to/pi-researcher
 pi install npm:pi-web-access@0.45.0
 pi install npm:@duskmoon/pi-academic-search@0.1.1
 pi install npm:pi-arxivist@0.1.7
+pi install npm:pi-subagents
 ```
 
 ## 使用方式
@@ -102,6 +103,36 @@ project/
 独立在主 TUI 使用 `/engine` 时，额外加载 `extensions/engine/index.ts`。本包 manifest 默认只加载 researcher，避免与用户已经安装的 `/engine` 重复注册。
 
 详见 [engine 接入与迁移](docs/engine.md)。
+
+## 报告编译环境
+
+`research-report` 默认生成中文 ICML2026 双栏报告，编译成功后交付唯一的报告 PDF：`paper/report.pdf`。Ubuntu / Debian 安装依赖：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3 texlive-xetex texlive-lang-chinese \
+  texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended fonts-texgyre poppler-utils
+```
+
+中文使用 **Fandol 宋体、黑体、楷体和仿宋**，西文使用 **TeX Gyre** 字体，均由上述包提供，无需另装宋体或微软雅黑。安装后检查命令与字体，`kpsewhich` 应返回文件路径：
+
+```bash
+xelatex --version
+bibtex --version
+kpsewhich ctex.sty
+kpsewhich FandolSong-Regular.otf
+kpsewhich texgyretermes-regular.otf
+```
+
+完成报告写作后执行（`<package-dir>` 替换为本包实际路径）：
+
+```bash
+python3 <package-dir>/skills/research-report/scripts/report_generation.py compile --output paper
+```
+
+成功状态见 `paper/build-status.json`，错误日志见 `paper/build.log`。依赖需安装在 Pi 实际运行的机器或容器中。
+
+本机已使用无 sudo 的用户级 TeX Live，位于 `~/.local/share/pi-researcher/texlive`，命令入口在已加入 PATH 的 `~/.local/bin`，无需再执行上述安装命令。
 
 ## 配置与验证
 
