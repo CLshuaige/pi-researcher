@@ -298,3 +298,62 @@ test('input waits for child cancellation; late abort cannot make stop resumable'
     assert.equal(await h.controller.receive('Unrelated chat', h.ctx as any), 'ignored');
   } finally { await h.cleanup(); }
 });
+
+test('accept ignores copied status but still requires verified evidence and exact criterion explanations', async () => {
+  const h = harness(); try {
+    await h.call({ action: 'init', objective: 'Goal' });
+    await h.call({ action: 'plan', modules: [definition('M1')] });
+    await h.call({ action: 'start', moduleId: 'M1' });
+    const revision = h.store.read()!.revision;
+    const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance', reason: 'Everything is verified' });
+    assert.equal(failed.isError, true);
+    assert.equal(h.store.read()!.revision, revision);
+    assert.equal(h.store.read()!.modules[0].status, 'running');
+    const requirements = failed.details.recovery.acceptanceRequirements;
+    assert.deepEqual(requirements.criteria, ['Recorded evidence']);
+    assert.equal(requirements.requiredAcceptanceCount, 1);
+    assert.deepEqual(requirements.ignoredFields, ['status']);
+    assert.match(requirements.problems.join('; '), /received 0/);
+    assert.match(requirements.problems.join('; '), /evidence is empty/);
+    writeFileSync(join(h.root, 'evidence.txt'), 'real artifact');
+    const accepted = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance', evidence: ['evidence.txt'], acceptance: ['Verified the actual artifact'] });
+    assert.equal(accepted.isError, undefined);
+    assert.equal(h.store.read()!.modules[0].status, 'completed');
+    assert.equal(h.store.read()!.modules[0].acceptedRevision, h.store.read()!.objectiveRevision);
+  } finally { await h.cleanup(); }
+});
+
+test('accept reports count and missing file problems without changing the checklist', async () => {
+  const h = harness(); try {
+    await h.call({ action: 'init', objective: 'Goal' });
+    await h.call({ action: 'plan', modules: [definition('M1')] });
+    await h.call({ action: 'start', moduleId: 'M1' });
+    const before = h.store.read()!;
+    const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'completed', evidence: ['missing.txt'], acceptance: ['One', 'Two'] });
+    assert.equal(failed.isError, true);
+    assert.match(failed.details.error, /exactly 1.*received 2/);
+    assert.match(failed.details.error, /missing.txt/);
+    assert.equal(failed.details.recovery.nextAction, 'read');
+    assert.deepEqual(h.store.read(), before);
+  } finally { await h.cleanup(); }
+});
+
+test('three repeated checklist failures pause after turn; read/help and prose changes cannot hide the loop', async () => {
+  const h = harness(); try {
+    await h.call({ action: 'init', objective: 'Goal' });
+    await h.call({ action: 'plan', modules: [definition('M1')] });
+    await h.call({ action: 'start', moduleId: 'M1' });
+    for (let i = 1; i <= 3; i++) {
+      const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance', reason: `I will now fix the arguments ${i}` });
+      assert.equal(failed.details.recovery.repeatedAttempts, i);
+      assert.equal(failed.details.recovery.pauseAfterTurn, i === 3);
+      await h.call({ action: 'read' }); await h.call({ action: 'help' });
+    }
+    h.hooks.turn_end({ outcome: 'completed' });
+    assert.equal(h.controller.active, false);
+    assert.equal(h.store.read()!.control.state, 'paused');
+    await h.controller.receive('Retry with corrected arguments', h.ctx as any);
+    const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance' });
+    assert.equal(failed.details.recovery.repeatedAttempts, 1);
+  } finally { await h.cleanup(); }
+});

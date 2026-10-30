@@ -14,7 +14,7 @@
 | context | 注入最新清单、Skill 和待投递事件，记住本请求事件 ID，不提前确认。 |
 | tool_call | 顺序/路径/运行许可约束；wait 必须是独立、非嵌套工具批次。 |
 | wait execute | 检查指令已 resolve，持久化等待 ID、目标版本、任务集合及截止时间，返回 terminate。 |
-| turn_end | 正常完成时确认本请求携带的事件；error/abort 保留重投递。 |
+| turn_end | 正常完成时确认本请求携带的事件；error/abort 保留重投递。同一清单调用连续失败三次则暂停，避免工具循环空转。 |
 | agent_end | 不在此处认定空闲、释放锁或唤醒；Pi 还可能重试或处理排队消息。 |
 | agent_before_settle | 集中决定完成、预算暂停、事件/指令处理、waiting、blocked/无进展暂停或继续。 |
 | agent_settled | 停止活跃计时、处理 abort、更新状态，清理完成后释放不再需要的锁，尝试唤醒。 |

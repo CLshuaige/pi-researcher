@@ -22,6 +22,8 @@ export class ResearchController {
   private activeMs = 0;
   private activeSince?: number;
   private modelTurns = 0;
+  private checklistFailure?: { key: string; count: number };
+  private checklistFailurePause?: string;
   private closing = false;
   private waitId?: string;
   private requestEvents: string[] = [];
@@ -113,7 +115,7 @@ export class ResearchController {
       this.refreshJobs(true);
       clearInterval(this.jobTimer);
       this.jobTimer = setInterval(() => this.refreshJobs(), 2000);
-      this.resumeOnInput = false;
+      this.resumeOnInput = false; this.checklistFailure = undefined; this.checklistFailurePause = undefined;
       this.last = ''; this.stagnant = 0; this.continuations = 0; this.activeMs = 0; this.activeSince = undefined; this.modelTurns = 0;
     } catch (error) { if (!retained) { release(); this.release = undefined; } this.enabled = false; this.resumeOnInput = Boolean(retained); throw error; }
   }
@@ -291,6 +293,10 @@ export class ResearchController {
       if (++this.modelTurns > 100) { void this.pause('Research model turn budget exhausted'); void ctx.abort(); }
     });
     pi.on('turn_end', event => {
+      if (this.checklistFailurePause && this.active) {
+        const reason = this.checklistFailurePause; this.checklistFailurePause = undefined;
+        this.ui?.notify(reason, 'error'); void this.pause(reason);
+      }
       if (event.outcome === 'completed' && this.release) {
         try { this.store?.files.acknowledgeEvents(this.requestEvents); this.requestEvents = []; }
         catch (error) { this.ui?.notify(`Event acknowledgement failed: ${String(error)}`, 'error'); void this.pause('Event acknowledgement failed'); }
@@ -310,6 +316,7 @@ export class ResearchController {
       if (await this.receive(event.text, ctx) === 'blocked') return { action: 'handled' as const };
     });
     pi.on('tool_call', (event, ctx) => {
+      if (this.checklistFailurePause) return { block: true, reason: this.checklistFailurePause };
       if (!this.active || !this.store) {
         if (this.release || this.pausing) return { block: true, reason: 'Research execution is paused or stopping' };
         return;
@@ -413,10 +420,17 @@ export class ResearchController {
         if (!this.active || !this.store) return { content: [{ type: 'text', text: 'Activate with /researcher, or send a new instruction after interruption.' }], details: {}, isError: true };
         try {
           applyChecklistAction(this.store, p.action === 'init' && !p.objective ? { ...p, objective: this.pending.join('\n') } : p);
+          if (p.action !== 'read') this.checklistFailure = undefined;
           const payload = this.state();
           return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: payload };
         } catch (error) {
-          const details = checklistRecovery(this.store, error);
+          const details = checklistRecovery(this.store, error, p);
+          const { reason: _reason, ...argumentsWithoutReason } = p;
+          const key = JSON.stringify([Object.keys(argumentsWithoutReason).sort().map(k => [k, argumentsWithoutReason[k as keyof typeof argumentsWithoutReason]]), details.error, details.recovery.currentRevision]);
+          const count = this.checklistFailure?.key === key ? this.checklistFailure.count + 1 : 1;
+          this.checklistFailure = { key, count };
+          if (count >= 3) this.checklistFailurePause = 'Repeated checklist failure (3 identical attempts). Research paused; inspect recovery details and correct arguments before resuming.';
+          Object.assign(details.recovery, { repeatedAttempts: count, pauseAfterTurn: Boolean(this.checklistFailurePause) });
           return { content: [{ type: 'text', text: JSON.stringify(details) }], details, isError: true };
         }
       },

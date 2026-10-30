@@ -61,13 +61,13 @@
 {"action":"update","expectedRevision":3,"reason":"已保存来源摘录","moduleId":"M1","status":"awaiting_acceptance","evidence":["research/evidence/source.md"]}
 ```
 
-验收自动设置 completed，不必提交 status：
+验收以 action=accept 为准，自动设置 completed；不必提交 status，复制过来的冗余 status 会被忽略，但不会绕过证据、逐条说明或活动任务校验：
 
 ```json
 {"action":"accept","expectedRevision":4,"reason":"已核对原文","moduleId":"M1","acceptance":["原文第二节明确支持该主张"]}
 ```
 
-该例沿用上次的 evidence。acceptance 按 criteria 的顺序提供，一条标准对应一条非空说明。证据可为工作区内文件路径或 http(s) URL，本地文件必须真实存在。当前模块有活动子任务或托管后台进程时不能完成或跳过。重新 plan 或通过 resolve 改变目标前，也必须先结束或取消活动工作。不能在 accept 时改写 criteria、skills 或 objective 来降低验收标准，定义变更须通过 plan。
+该例沿用上次的 evidence；省略 acceptance 也会沿用已保存值，但必须满足验收条件。reason 是审计说明，不能替代 acceptance。acceptance 按 criteria 的顺序提供，一条标准对应一条非空说明。证据可为工作区内文件路径或 http(s) URL，本地文件必须真实存在。当前模块有活动子任务或托管后台进程时不能完成或跳过。重新 plan 或通过 resolve 改变目标前，也必须先结束或取消活动工作。不能在 accept 时改写 criteria、skills 或 objective 来降低验收标准，定义变更须通过 plan。
 
 阻塞与跳过：
 
@@ -93,7 +93,7 @@ instructionId 必须来自返回的 pendingInstructions；全局目标变化会�
 | Module order violation | 操作 currentModule，先完成或明确跳过前面的模块 |
 | Start current module | 使用 start，然后在下一次请求执行工具 |
 | Delegation must use current module skills | 委派 skills 必须与当前模块声明完全一致；需要不同能力时先 plan 修订 |
-| Acceptance needs evidence | 保存真实成果，提交有效路径和逐条验收说明 |
+| Acceptance rejected | 按 recovery.acceptanceRequirements 查看原始 criteria、所需条数、实际 evidence/acceptance 和具体缺项；保存真实成果并逐条核验后提交 |
 | Invalid arguments / 旧 module 参数 | 删除 module，使用 moduleId 和顶层 status/evidence/acceptance；定义变化使用 plan |
 | Use plan to change criteria | 先修订计划，再重新执行/验收，不能验收时降低要求 |
 | Checklist modified outside protocol | repair 恢复最后提交快照，然后通过工具重新修订 |
@@ -114,3 +114,5 @@ Escape 或 pause 后，同一研究会话的下一条普通用户指令会等待
 Skill 全文仅注入隐藏的请求检查点，不放入清单工具结果。TUI 仅显示实际成功加载的 Skill 名称；读取失败会单独报告 Skill 加载错误，不提示修复清单。没有 Skill 时不显示 widget。
 
 0.5.0 新增 `control.state: waiting` 与可选 `wakeAt`；有托管任务时检查点和工具状态还返回精简 jobs。等待只释放主会话，不完成模块，详见 [后台任务与等待](closed-loop.md#托管后台任务与定时唤醒)。
+
+同一 revision 下，相同参数（忽略 reason 文案与顶层字段顺序）连续失败三次，会在 turn_end 暂停研究；read/help 不清除此计数，成功修改或重新激活会重置。暂停保留后台 J。错误结果包含 repeatedAttempts 和 pauseAfterTurn，避免在同一工具循环中无限重试。

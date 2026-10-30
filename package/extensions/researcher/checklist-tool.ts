@@ -7,7 +7,7 @@ const Definition = Type.Object({
   id: ModuleSchema.properties.id, objective: ModuleSchema.properties.objective,
   skills: ModuleSchema.properties.skills, criteria: ModuleSchema.properties.criteria,
   dependencies: Type.Optional(ModuleSchema.properties.dependencies),
-  status: Type.Optional(ModuleSchema.properties.status),
+  status: Type.Optional(Type.Union(ModuleSchema.properties.status.anyOf, { description: 'update only. Do not copy current status into accept: accept always completes after validation and ignores redundant status.' })),
   evidence: Type.Optional(ModuleSchema.properties.evidence),
   acceptance: Type.Optional(ModuleSchema.properties.acceptance), reason: Type.Optional(Type.String()),
 });
@@ -18,9 +18,9 @@ export const ChecklistParameters = Type.Object({
   objective: Type.Optional(Type.String({ minLength: 1 })),
   modules: Type.Optional(Type.Array(Definition, { minItems: 1, description: 'plan only: ordered complete list of module definitions. Preserve existing IDs.' })),
   moduleId: Type.Optional(Type.String({ description: 'start/update/accept: must be currentModule.id.' })),
-  status: Type.Optional(ModuleSchema.properties.status),
+  status: Type.Optional(Type.Union(ModuleSchema.properties.status.anyOf, { description: 'update only. Do not copy current status into accept: accept always completes after validation and ignores redundant status.' })),
   evidence: Type.Optional(ModuleSchema.properties.evidence),
-  acceptance: Type.Optional(ModuleSchema.properties.acceptance),
+  acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Exactly one verified explanation per criterion, in criteria order. reason is an audit note, not acceptance. Omitted values reuse saved acceptance.' })),
   instructionId: Type.Optional(Type.String({ description: 'resolve only: pending instruction ID; reason records its resolution.' })),
 }, { additionalProperties: false });
 export type ChecklistArguments = Static<typeof ChecklistParameters>;
@@ -35,7 +35,7 @@ Use ONE mutation per tool result, not a batch. In examples replace expectedRevis
 - Update fields: {"action":"update","expectedRevision":1,"reason":"Collected evidence","moduleId":"M1","status":"awaiting_acceptance","evidence":["research/result.md"]}.
   Omitted fields are preserved. blocked/skipped require a concrete reason. Do not send completed here. Change objective/skills/criteria/dependencies using plan, not update/accept.
 - Accept: {"action":"accept","expectedRevision":1,"reason":"Verified source","moduleId":"M1","evidence":["research/result.md"],"acceptance":["Original source supports criterion 1"]}.
-  Automatically sets completed. Start first. Requires one nonempty explanation per criterion, existing evidence, no active module tasks. Acceptance cannot change criteria. Then start the next module.
+  Automatically sets completed; omit status (redundant status is ignored). reason does not replace acceptance. Omitted evidence/acceptance reuse saved values, which must still pass validation. Start first. Requires one nonempty explanation per criterion, existing evidence, no active module tasks. Acceptance cannot change criteria. Then start the next module.
 - Resolve user input: {"action":"resolve","expectedRevision":1,"reason":"Explained how this request was handled","instructionId":"I-..."}.
   Optional objective changes the global goal and reopens modules. objective is accepted only in init/resolve.
 - Recover externally edited/deleted JSON: {"action":"repair"}; restores the committed snapshot and preserves rejected content.
@@ -82,14 +82,14 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
     const old = requireCurrentModule(c, id);
     if (p.action === 'update' && p.status === undefined && p.evidence === undefined && p.acceptance === undefined) throw new Error('update requires status, evidence or acceptance; read is non-mutating.');
     const status = p.action === 'start' ? 'running' : p.action === 'accept' ? 'completed' : p.status ?? old.status;
-    if (p.action === 'accept' && p.status && p.status !== 'completed') throw new Error('accept always sets completed.');
     if (!['start', 'update', 'accept'].includes(p.action)) throw new Error('Unknown action; use help.');
     if (old.status === 'pending' && !['running', 'blocked', 'skipped'].includes(status)) throw new Error('Start the current module before submitting or accepting work.');
     const m: ResearchModule = { ...old, status, evidence: p.evidence ?? old.evidence,
       acceptance: p.acceptance ?? old.acceptance, reason: p.reason!, acceptedRevision: undefined };
     if (status === 'completed') {
       if (p.action !== 'accept') throw new Error('Use accept to complete a module.');
-      if (m.acceptance.length !== m.criteria.length || m.acceptance.some(x => !x.trim()) || !m.evidence.length || !m.evidence.every(e => store.evidenceExists(e))) throw new Error('Acceptance needs existing evidence and one nonempty explanation per criterion.');
+      const problems = acceptanceProblems(store, m);
+      if (problems.length) throw new Error('Acceptance rejected: ' + problems.join('; '));
       m.acceptedRevision = c.objectiveRevision;
     }
     if (['completed', 'skipped'].includes(status) && store.files.activeWork(id).length) throw new Error('Module has running tasks; wait or cancel them.');
@@ -97,9 +97,35 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
   }, p.expectedRevision, 'manager');
 }
 
-export function checklistRecovery(store: ChecklistStore, error: unknown) {
+function acceptanceProblems(store: ChecklistStore, m: ResearchModule): string[] {
+  const problems: string[] = [];
+  if (m.acceptance.length !== m.criteria.length) problems.push(`acceptance requires exactly ${m.criteria.length} explanations (one per criterion), received ${m.acceptance.length}; reason is not acceptance`);
+  m.acceptance.forEach((text, i) => { if (!text.trim()) problems.push(`acceptance[${i}] is empty`); });
+  if (!m.evidence.length) problems.push('evidence is empty: supply real artifact paths or source URLs');
+  for (const path of m.evidence) {
+    try { if (!store.evidenceExists(path)) problems.push(`Evidence is not a file: ${path}`); }
+    catch { problems.push(`Evidence missing or outside workspace: ${path}`); }
+  }
+  return problems;
+}
+
+export function checklistRecovery(store: ChecklistStore, error: unknown, attempted?: ChecklistArguments) {
   let currentRevision: number | undefined; let currentModuleId: string | undefined; let nextAction = 'read';
-  try { const c = store.read(); currentRevision = c?.revision; currentModuleId = c && currentModule(c)?.id; if (!c) nextAction = 'init'; }
-  catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  let acceptanceRequirements: object | undefined;
+  try {
+    const c = store.read(); currentRevision = c?.revision;
+    const m = c && currentModule(c); currentModuleId = m?.id;
+    if (!c) nextAction = 'init';
+    if (attempted?.action === 'accept' && m && attempted.moduleId === m.id) {
+      const effective = { ...m, evidence: Array.isArray(attempted.evidence) && attempted.evidence.every(x => typeof x === 'string') ? attempted.evidence : m.evidence, acceptance: Array.isArray(attempted.acceptance) && attempted.acceptance.every(x => typeof x === 'string') ? attempted.acceptance : m.acceptance };
+      acceptanceRequirements = {
+        moduleId: m.id, criteria: m.criteria, requiredAcceptanceCount: m.criteria.length,
+        evidence: effective.evidence, acceptance: effective.acceptance,
+        problems: acceptanceProblems(store, effective),
+        ignoredFields: attempted.status === undefined ? [] : ['status'],
+        instruction: 'Submit action=accept with the latest expectedRevision, moduleId, reason, verified evidence and exactly one acceptance explanation per criterion. Omitted arrays reuse saved values. Do not invent evidence; reason cannot replace acceptance. Omit status.',
+      };
+    }
+  } catch { nextAction = 'repair'; }
+  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
 }
