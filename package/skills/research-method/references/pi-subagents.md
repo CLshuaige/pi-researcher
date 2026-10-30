@@ -1,43 +1,52 @@
 # Pi 调用与上下文交接
 
-本流程复用用户已配置的 `pi-subagents`，通过普通模型工具调用执行。以下按已安装的 0.84.0 接口编写；其他版本以实际 schema 和 `guide` 为准，无需修改扩展或全局 agent 配置。
+使用用户已配置的 pi-subagents。以下按本机 0.84.0 接口编写；以实际 schema 和 guide 为准，不修改全局代理、模型或运行上限。
 
-## 单角色调用边界
+## 调用模式与并行边界
 
-本技能由主会话读取产物并决定下一角色，每次调用只启动一名子代理，使用下方的 `agent`、`task`、`cwd`、`output`、`options` 参数模板；需要显式控制异步时可另传 `async`。后续角色在当前角色完成并交接后再启动，不把整次辩论包装成工具 workflow。
+主会话按依赖关系选择两种互斥模式，不能把它们的顶层参数混在一起：
 
-- 角色启动不得同时包含 `workflow`、`args` 或 `options.script`，也不使用旧字段 `workflowScript`、`workflowScriptPath`。直接省略这些字段，不传 `false`、`null` 或空对象作为替代。
-- `workflow: true` 属于回复代码块工作流；脚本路径和命名 workflow 也属于工作流模式，不能与顶层 `agent`、`task` 混用。`options.script` 同样会进入工作流路径，仅删除 `workflow` 而留下它仍会冲突。
-- 查询状态、帮助、代理列表时单独调用 `action`。启动角色时省略 `action`，不要发明 `action: "single"`。
-- 子代理交接 JSON 是最终回复内容，不是启动参数中的 `args`，也不要求配置 workflow 或脚本。
+- **一个角色：** 用 `agent`、`task`，可带 cwd、output、options、async；省略 workflow、args、options.script。适用于统一 Critic、Formatter、单个修订方向。
+- **独立批次：** 用 `workflow: "parallel"` 和 `args.tasks`，顶层不传 agent、task、action 或 options.script。tasks 每项只接受 agent、task、cwd 和可选 model；本技能不覆盖 model。角色和方向名写入 task，不发明每项的 output、key 或 options 字段。
+- 查询用独立 action 调用，不与启动混用，不使用 action: single 或旧版顶层 chain、parallel、tasks、workflowScript、workflowScriptPath。省略不适用字段，不以 false 或 null 替代 workflow。
+- 外层 `output: false` 也应用于工作流子任务，关闭自动单文件重定向。子代理显式写自己的完整产物，最终回传交接 JSON；不能只回文件名而未写文件。
+- 主会话预建每个子代理独立的 cwd 与成果目录。原项目根目录通过 task/context 显式传入以读取材料；并行子代理只写自己的目录，不同时修改阶段根目录文件。不要用 worktree 来复制研究项目，也不让子代理继续派生代理。
 
-若返回 `Structured single-child execution cannot be combined with workflow.`，这是启动前的参数互斥错误，该次调用未创建子代理，不增加辩论轮数。保留已有 context 和产物，向用户说明参数错误，从下方单角色模板重新构造参数，完整去除工作流字段后纠正重试一次；不要仅在失败参数上反复修改 `workflow` 的值。
+发生 `Structured single-child execution cannot be combined with workflow.` 时，该次请求在启动前被拒绝。先判断本次需要单角色还是批次，再从相应模板重建参数，保留已有产物，只纠正重试一次。批次应去除顶层 agent/task；单角色应去除全部工作流字段，不是反复修改 workflow 的值。已有 run id 或是否启动不明时先查询实际状态，不重复启动；其他运行失败不套用这一参数修复，不切换 CLI 或模型。
 
-若已有 run id 或无法确认是否启动，先用该 ID 查询状态，避免重复启动。纠正后仍失败则停止并报告实际参数字段与错误，按扩展 guide 排查；其他运行或环境失败不套用上述重试，不自动切换 CLI、模型或执行模式。
+## 准备能力
 
-## 确认能力
-
-用户或项目指令授权本流程后，若只看到 `subagents_enable`，先调用 `subagents_enable({})`，下一次模型请求再使用 `subagent`。启用工具不等于启动子任务。
-
-按需查看已有代理：
+用户或项目指令授权本流程后，仅看到 subagents_enable 时先调用 `subagents_enable({})`，下一次请求再使用 subagent。按需用下面参数查询代理，优先选内置 delegate，并在 task 给出角色参考与全部材料路径。
 
 ```json
 {"action":"list","options":{"capabilities":true}}
 ```
 
-接口帮助使用 `subagent({ action: "guide", options: { topic: "tool-reference/execution-parameters" } })`，配置异常可用 `subagent({ action: "doctor" })`。
+delegate 默认继承父模型但不自动继承技能或聊天历史。用 context: fresh，并给出角色与输出参考的实际路径。并行第一轮不传同批其他方向结果；后续批评和整理必须得到所有当前完整产物，而非仅小结。
 
-优先用内置 `delegate` 承载三个逻辑角色，沿用父模型，以 task 区分角色。每次使用新的会话，显式提供从项目 Markdown/JSON 整理的 `context.md` 和已有讨论，不依赖父会话历史或自动加载技能。项目覆盖了 delegate 时，先检查其实际读取与写入能力。
+## 并行批次示例
 
-## 一次调用示例
-
-下面是传给 `subagent` 的参数。示例使用项目根目录下的 `method/`；采用运行子目录或自定义输出位置时，统一替换为本次成果目录的真实绝对路径。将项目和技能目录替换为真实绝对路径，主会话先建立本次成果目录。task 指定完整产物路径，`output: false` 关闭扩展的单文件输出重定向；交接文件由主会话在收到最终回复后保存。
+下面仅示范两个方向。根据项目给出真正不同的探索任务，并将全部占位路径替换为实际目录；第三方向按相同形式追加。主会话先建立 round-01 中的每个工作目录。
 
 ```json
 {
-  "agent": "delegate",
+  "workflow": "parallel",
+  "args": {
+    "tasks": [
+      {
+        "agent": "delegate",
+        "cwd": "/absolute/project/method/round-01/M1",
+        "task": "你是 Planner，本次方向标识 M1，第 1 轮。项目根目录为 /absolute/project，材料在 /absolute/project/method/context.md；先读 /absolute/skill/research-method/references/roles.md 的共同输入和 Planner。方向任务：设计一种能回答目标问题的完整验证策略，实际执行时以主会话根据项目确定的方向为准，不预设结论。只设计一份完整方法，不执行实验。不读取同批其他方向的产物，不启动子代理。只写 /absolute/project/method/round-01/M1/method.md，不修改原始材料或共享文件；最后回复纯交接 JSON，包含 role、lane_id=M1、round、status、artifacts、summary、open_questions，列出真实产物绝对路径和具体工作小结。"
+      },
+      {
+        "agent": "delegate",
+        "cwd": "/absolute/project/method/round-01/M2",
+        "task": "你是 Planner，本次方向标识 M2，第 1 轮。项目根目录为 /absolute/project，材料在 /absolute/project/method/context.md；先读 /absolute/skill/research-method/references/roles.md 的共同输入和 Planner。方向任务：设计另一种有实质差异且能回答同一问题的完整验证策略，实际执行时以主会话根据项目确定的方向为准，不预设结论。只设计一份完整方法，不执行实验。不读取同批其他方向的产物，不启动子代理。只写 /absolute/project/method/round-01/M2/method.md，不修改原始材料或共享文件；最后回复纯交接 JSON，包含 role、lane_id=M2、round、status、artifacts、summary、open_questions，列出真实产物绝对路径和具体工作小结。"
+      }
+    ]
+  },
   "cwd": "/absolute/project",
-  "task": "你是本次方法设计的 Planner，只完成第 1 轮规划，不启动子代理。读取 /absolute/skill/research-method/references/roles.md 的共同输入及 Planner 部分并执行。context.md 位于 /absolute/project/method/context.md，包含主会话从项目 Markdown/JSON 提取的目标和背景；这是第一轮，无历史讨论。将完整实验设计（包括基线、对照、测量、步骤、依赖、Engineer/RA 分工、预期产物及资源）写入 /absolute/project/method/round-01-planner.md。只写该产物，不修改原始材料、共享状态或其他文件，不检索或运行实验。完成后最终回复纯 JSON，按子代理交接约定提供 role、round、status、artifacts、summary、open_questions，其中 artifacts 列出实际产物绝对路径，summary 是本次工作小结；主会话收到后将交接 JSON 保存到 /absolute/project/method/round-01-planner.handoff.json。",
+  "async": true,
   "output": false,
   "options": {
     "context": "fresh",
@@ -46,57 +55,57 @@
 }
 ```
 
-子代理通过写入工具将完整产物保存到 task 指定的位置，最终只回复下面约定的交接 JSON，将小结和实际文件地址直接带回主会话。主会话把该 JSON 保存为本次角色对应的 `.handoff.json`；子代理不需要另写交接文件。
+同一批次只含相互独立的任务。不能把依赖这些结果的 Critic 或 Formatter 加入该 tasks 数组；它们由主会话在收齐结果后另行调用。运行时并发不足可排队或分批，不改变其上限。若实际接口在启动前明确不支持 parallel，可按同一分工使用单角色调用顺序执行，保持独立输入并说明退化；不要在已运行批次后再整批启动一次。
 
-保持 `output: false`：当前扩展对指定 output 会附加“忽略其他输出路径”的单文件指令，与“完整产物写入任务指定文件，最终回复交接小结”冲突。关闭该绑定后，任务中的产物路径通过子代理实际写入生效，而非依赖运行时自动保存。不得只回复文件名而不创建完整产物。
+## 单子代理示例
+
+```json
+{
+  "agent": "delegate",
+  "cwd": "/absolute/project/method/round-01/critic",
+  "task": "你是 Critic，方向标识 all，第 1 轮。项目根目录为 /absolute/project。读取 /absolute/project/method/context.md 和 /absolute/skill/research-method/references/roles.md 的共同输入及 Critic。读取已完成的 /absolute/project/method/round-01/M1/method.md、/absolute/project/method/round-01/M2/method.md，统一比较并逐项给出意见。只写 /absolute/project/method/round-01/critic/critique.md，评审产物末尾按规则给出结束标记；不启动子代理。最终回复包含 role、lane_id、round、status、artifacts、summary、open_questions 的交接 JSON。",
+  "output": false,
+  "options": {
+    "context": "fresh",
+    "outputMode": "inline"
+  }
+}
+```
+
+Formatter 同样单独调用，cwd 使用本次成果目录下的 formatter/，完整 JSON 写该目录的 formatter.json。主会话读取后再生成阶段根目录的最终产物；后续轮次使用新目录。
 
 ## 子代理交接
 
-所有角色完成后最终回复如下形状的纯 JSON，不加 Markdown 围栏或前后解释。这是本技能的交接约定，不是新增 Pi 工具参数或 `research_finish` 调用。示例中的工作内容仅演示小结写法，实际必须按本轮真实工作填写。
+每名子代理先写完整产物，再以纯 JSON 最终回复下面的交接约定；这不是 subagent 的参数，也不是 research_finish 调用。
 
 ```json
 {
   "role": "Planner",
+  "lane_id": "M1",
   "round": 1,
   "status": "completed",
   "artifacts": [
-    "/absolute/project/method/round-01-planner.md"
+    "/absolute/project/method/round-01/M1/method.md"
   ],
-  "summary": "将假说拆为数据准备、基线对照、重复测量和结果分析步骤，明确依赖及预期产物；保留必要对照，人工评估的人员安排仍待确认。",
-  "open_questions": [
-    "人工评估所需人员及时间尚未确认"
-  ]
+  "summary": "说明本方向实际生成的假说或方案、关键依据及待确认条件；修订轮次说明实质变化。",
+  "open_questions": []
 }
 ```
 
-- `role` 与 `round` 指明角色和当前轮次；Formatter 的 round 填实际完成的辩论轮数。
-- `status` 为 `completed`、`partial` 或 `blocked`，表示本次角色工作是否完成，不表示科学结论通过验证。
-- `artifacts` 列出本次真实写入的完整产物绝对路径，不能只给目录、设想文件或 session 地址。没有生成产物时返回空数组并解释原因。
-- `summary` 是简短的工作小结，说明做了什么、得到什么、相对上一轮改了什么；不只写“已完成”，也不复制整份产物。
-- `open_questions` 列出未解决问题和受阻原因，没有则为空数组。失败或部分完成时同样返回小结与已生成文件。
+role 是职责，lane_id 是方向标识；统一 Critic 使用 all，Formatter 使用 final。round 是本轮批评计数对应的轮次。status 使用 completed、partial、blocked 表示角色任务完成度，不表示科学结论成立。artifacts 是本次真实完整文件的绝对路径，summary 是工作小结，open_questions 是缺口；没有产物时返回空数组并解释。
 
-主会话等待原生完成通知，从子代理最终输出取得交接 JSON，保存为表中对应的交接文件，阅读小结和 artifacts，再打开完整产物，记录角色、轮次及可用的 run id。工具的状态包装、日志引用不属于该 JSON 字段；不要把整段工具展示文本当成 JSON 直接解析。以真实文件位置为准，发现缺失文件或内容不符时先报告，不把交接自报完成当成科研有效性。
+## 批次读取与恢复
 
-## 材料与调用顺序
+默认异步启动只返回回执。等待原生完成通知，不循环轮询或用 bg_wait。批次结果包含多个 children，每个 child.output 才是该子代理的最终交接；不要把聚合结果当作一个交接 JSON，也不要只读第一个 child。按 lane_id 关联方向，主会话逐项保存交接文件，再打开全部实际产物。工具展示被截断时读取实际运行记录，保留工作流和子任务 ID。
 
-| 调用 | 必须提供的材料 | 完整产物 | 交接文件 |
-| --- | --- | --- | --- |
-| 第 1 轮 Planner | context、Planner 提示 | round-01-planner.md | round-01-planner.handoff.json |
-| 第 1 轮 Critic | context、本轮规划、Critic 提示 | round-01-critic.md | round-01-critic.handoff.json |
-| 第 N 轮 Planner | context、第 1 至 N−1 轮全部规划与批评、Planner 提示 | round-NN-planner.md | round-NN-planner.handoff.json |
-| 第 N 轮 Critic | context、此前全部讨论、本轮规划、Critic 提示 | round-NN-critic.md | round-NN-critic.handoff.json |
-| Formatter | context、全部规划与批评、实际轮数、Formatter 提示、输出约定 | formatter.json | formatter.handoff.json |
+外层成功或失败均需检查每个 child 的运行结果及交接 status。一个失败可能使整批标为失败，成功子任务的真实成果仍保留；只对失败方向处理，不重跑已完成方向。运行中、暂停或缺少终态的任务不能当成不存在后再次派发。缺口会影响阶段结论时明确交付范围，不把少了某方向说成已经全面比较。
 
-表中的交接文件由主会话保存。每次 task 明确列出完整输入路径、产物路径和交接要求。后续角色读取完整产物，不能只读取工作小结。Critic 的结束标记只写在评审产物中，主会话从该产物执行路由。Formatter 将完整方法 JSON 写入 `formatter.json`，工作小结另行交接，不把两类 JSON 混在一起。
+| 工作 | 完整产物 | 主会话保存的交接 |
+| --- | --- | --- |
+| 第 N 轮 Planner，方向 M1 | round-NN/M1/method.md | round-NN/M1/handoff.json |
+| 第 N 轮统一 Critic | round-NN/critic/critique.md | round-NN/critic/handoff.json |
+| Formatter | formatter/formatter.json | formatter/handoff.json |
 
-`subagent` 默认异步，启动回执不是角色结果。等待期间可以准备后续任务，但不能提前启动依赖未完成产物的角色。普通子任务不循环轮询或调用 `bg_wait`；只有确需阻塞时才设 `async: false`。不使用旧版顶层 `chain`、`parallel` 或 `tasks` 参数，无需新增工作流脚本。
+原生子任务只在指定目录工作；完整评审中的结束标记用于 Critic 产物，不从 summary 路由。三个职责沿用父模型，不自行检索、实现或实验。research_delegate 是另一套接口，不能接收上述参数；已经处于其禁止继续委派的子会话时只完成指定角色，不能运行并行编排。
 
-三个角色不指定 `model`，默认只分析提供的材料。内置 delegate 不自动继承任意检索扩展，需要额外核查时由主会话按用户需要收集材料。重跑使用新目录，旧历史仅在显式提供后作为输入。
-
-## 与研究工作区配合
-
-`research_workspace` 可按需查看已有状态或能力，不是本流程的前置阶段。`research_delegate` 是另一套有界任务接口，输入、输出目录和 `research_finish` 交接不同，不混用本文件参数。无需修改 research.json 或创建固定名称的研究目标与状态文件。
-
-若没有 subagent 工具，说明当前不能运行三子会话流程；用户允许直接推演时可沿用相同角色顺序，但需明确是单会话工作。启动失败时保留已有产物并报告失败，不用启动回执代替工作小结。
-
-接口参考：[pi-subagents 工具参考](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md)、[Pi 技能说明](https://pi.dev/docs/latest/skills)。
+参考：[pi-subagents 工具参考](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md)、[Pi 技能说明](https://pi.dev/docs/latest/skills)。

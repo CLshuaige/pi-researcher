@@ -4,7 +4,7 @@
 
 ## Formatter 输出
 
-Formatter 把完整 JSON 保存为本次运行目录中的 `formatter.json`，最终回复另按 [子代理交接](pi-subagents.md#子代理交接) 返回实际地址和工作小结。主会话从交接的 `artifacts` 读取方法产物，不将交接 JSON 当成方法 JSON。产物顶层直接是方法对象，不包裹 `ideas` 或候选列表。以下用一个步骤展示字段形状，实际步骤数量由方法决定：
+Formatter 把完整 JSON 保存到主会话指定的独立 `formatter/formatter.json`，最终回复另按 [子代理交接](pi-subagents.md#子代理交接) 返回实际地址和工作小结。主会话从交接的 `artifacts` 读取方法产物，不将交接 JSON 当成方法 JSON。产物顶层直接是方法对象，不包裹 `ideas` 或候选列表。以下用一个步骤展示字段形状，实际步骤数量由方法决定：
 
 ```json
 {
@@ -41,6 +41,8 @@ Formatter 把完整 JSON 保存为本次运行目录中的 `formatter.json`，�
 ## 主会话保存
 
 主会话读取 Formatter 输出，将方法对象保存为 `method.json`，并生成面向执行者的 `method.md`。不评分或排序方法，不额外引入批准状态、方法版本和最终复核。
+
+并行 Planner 各自产生完整替代方案，只有统一 Formatter 的综合结果用于最终 method.json。overview 说明选用的 M1、M2 等方案及取舍，引用源方案路径；整合后重新统一步骤编号和依赖，不能把各局部方案中同名 S1 等步骤直接拼接。debate_rounds 为统一 Critic 实际完成的轮数，不按子代理数累加。
 
 `method.md` 包含：
 
