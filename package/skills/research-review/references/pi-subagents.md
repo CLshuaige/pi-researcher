@@ -10,6 +10,10 @@
 2. 按需用 `subagent({"action":"list","options":{"capabilities":true}})` 确认代理。默认内置 `delegate`，沿用模型，以 task 定义学术 Reviewer。内置 `reviewer` 的系统提示是代码审查格式，与本技能协议不同，不能仅凭同名就假定适用。项目覆盖 delegate 时先确认工具与提示是否兼容。
 3. 使用 `options.context: "fresh"`，不 fork 作者会话。delegate 不自动继承本技能和 PDF/检索扩展，所以给出技能参考、工作目录及必要 PDF 读取入口，让 Reviewer 自主发现辅助文件；不提供封闭输入列表。不要用顶层 chain/parallel/tasks 旧参数。
 
+本路径每次仅以 `agent`、`task` 启动一个 Reviewer。启动参数省略 `workflow`、`args`、`options.script` 及旧字段 `workflowScript`、`workflowScriptPath`，不要用 `workflow: false` 或 `null` 代替省略；管理查询另用 `action`，不混入启动调用，也不使用 `action: "single"`。
+
+若返回 `Structured single-child execution cannot be combined with workflow.`，说明该次调用在启动前被参数校验拒绝。保留已有材料，从下方模板重建参数，完整去除工作流字段后纠正重试一次；不要仅修改 workflow 的值。若已有 run id 或启动状态不明，先按 ID 查询，避免重复启动；仍失败则报告错误，不自动切换执行模式。
+
 ```json
 {
   "agent": "delegate",
@@ -20,7 +24,7 @@
 }
 ```
 
-`output: false` 关闭扩展单文件重定向，使完整评审和最后交接小结分开；不能只回复文件名而不写产物。
+本分支先将完整评审写入 `review.json`，最终回复仅为交接 JSON `{status, summary, artifacts, open_questions}`，不在交接中重复完整评审。`output: false` 关闭扩展单文件重定向，使两者分开；不能只回复文件名或小结而不写产物。
 
 delegate 的工具中有 write/edit/bash，本路径的“只读评审”表示不修改被评对象，**不是工具级只读隔离**。任务仅允许写指定 review.json，禁止修改输入或运行实验；需要工具级只读时使用下方 research_delegate 分支，或用户已有且提示兼容的只读 agent。不要为了评审增加权限。若使用兼容的纯只读 agent，当前扩展支持用 `output` 绑定产物路径，由运行时保存最终完整 JSON；此时不要沿用示例的 `output: false` 或要求另返交接小结。
 
