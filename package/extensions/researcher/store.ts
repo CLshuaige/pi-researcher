@@ -103,6 +103,10 @@ export function readConfig(root: string, agentDir = getAgentDir()): ResearchConf
   return config;
 }
 
+export interface ResearchEvent {
+  id: string; type: 'job' | 'timer'; time: number; researchId: string; objectiveRevision: number;
+  summary: string; jobId?: string; waitId?: string; delivered?: boolean;
+}
 export class ResearchStore {
   readonly root: string;
   constructor(root: string) { this.root = realpathSync(root); }
@@ -169,6 +173,23 @@ export class ResearchStore {
   jobs(): JobRecord[] {
     const dir = this.path('.research/jobs');
     return existsSync(dir) ? readdirSync(dir).filter(id => /^J-[a-f0-9-]{36}$/.test(id)).map(id => this.readJob(id)).sort((a, b) => b.startedAt - a.startedAt) : [];
+  }
+  events(): ResearchEvent[] {
+    const path = this.path('.research/events.json');
+    if (!existsSync(path)) return [];
+    const events = JSON.parse(readFileSync(path, 'utf8'));
+    if (!Array.isArray(events) || events.some(e => typeof e.id !== 'string' || !['job', 'timer'].includes(e.type) || typeof e.summary !== 'string')) throw new Error('Invalid research events');
+    return events;
+  }
+  recordEvent(event: ResearchEvent) {
+    const events = this.events();
+    if (events.some(e => e.id === event.id)) return false;
+    atomicWrite(this.path('.research/events.json'), JSON.stringify([...events, event], null, 2));
+    return true;
+  }
+  acknowledgeEvents(ids: string[]) {
+    if (!ids.length) return;
+    atomicWrite(this.path('.research/events.json'), JSON.stringify(this.events().map(e => ids.includes(e.id) ? { ...e, delivered: true } : e), null, 2));
   }
   activeWork(moduleId?: string) {
     return [...this.list(), ...this.jobs()].filter(t => t.status === 'running' && (!moduleId || t.moduleId === moduleId));

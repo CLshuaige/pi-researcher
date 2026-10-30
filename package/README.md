@@ -6,11 +6,21 @@
 
 主会话负责研究目标、资源判断和综合结论。轻量任务直接完成；文献探索、持续实验和独立评审按需委派。七类能力不是必须依次通过的七个阶段。
 
+## 0.6.0 生命周期与等待
+
+`research_job wait` 必须单独调用，并先 resolve 用户指令；成功时通过 Pi 的 `terminate` 正常结束工具循环，随后才进入 waiting。无需靠模型自行停止轮询。混合批次或嵌套 wait 会被拒绝。
+
+Escape、pause、模型异常或预算耗尽只暂停模型和自动唤醒，保留托管 J 进程。`stop J-...` 取消指定任务，整体 stop、退出与 reload 仍取消全部工作。暂停时 J 仍有 owner 和状态显示，完成事件保存后等恢复处理；前台 T 委派仍会取消。
+
+主预算为每次激活 100 个模型 turn、30 分钟累计活跃时间、20 次自动续跑/唤醒；waiting/paused 不计活跃时间，J 自身超时继续计时。任务事件保存在 `.research/events.json`，请求失败不提前确认，正常 `turn_end` 才确认投递。投递不等于科研验收。
+
+已有记录保持可读。升级需 `/reload`，它会取消旧运行时任务；随后显式 `/researcher resume`。完整节点对应见 [生命周期控制](docs/lifecycle.md)。
+
 ## 0.5.0 托管后台任务与定时唤醒
 
-长下载、训练等进程可通过 `research_job` 启动，立即返回任务 ID，主会话可在任务运行期间处理新输入。任务结束会唤醒研究；需要中途检查时使用 `wait` 设置一次定时唤醒。等待期间不循环调用模型，不消耗自动续跑次数；真正的自动唤醒计入原有 20 次预算，30 分钟整体时限仍然有效。
+长下载、训练等进程可通过 `research_job` 启动，立即返回任务 ID，主会话可在任务运行期间处理新输入。任务结束会唤醒研究；需要中途检查时使用 `wait` 设置一次定时唤醒。等待期间不循环调用模型，不消耗自动续跑次数；真正的自动唤醒计入原有 20 次预算，30 分钟累计活跃时限仍然有效。
 
-`/researcher status` 查看任务，`/researcher inspect J-...` 查看日志尾部和退出码，`/researcher stop J-...` 取消一个任务。暂停、stop、Escape、退出或 reload 会取消托管进程及定时器。新功能当前支持 Linux；普通 Bash 和 research_delegate 仍然前台等待，不会自动转换为后台任务。
+`/researcher status` 查看任务，`/researcher inspect J-...` 查看日志尾部和退出码，`/researcher stop J-...` 取消一个任务。pause/Escape 保留托管进程并清除定时器；stop、退出或 reload 取消进程及定时器。新功能当前支持 Linux；普通 Bash 和 research_delegate 仍然前台等待，不会自动转换为后台任务。
 
 升级后 `/reload`，再 `/researcher resume`。已有清单和子任务记录无需迁移。完整 JSON 示例和恢复语义见 [后台任务与等待](docs/closed-loop.md#托管后台任务与定时唤醒)。
 

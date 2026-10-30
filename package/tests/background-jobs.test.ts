@@ -53,7 +53,8 @@ test('jobs return immediately, deduplicate, scope environment, bound logs and ga
     await until(() => h.store.files.readJob(id).status === 'succeeded');
     const state = (await h.job({ action: 'status', jobId: id })).details;
     assert.equal(state.exitCode, 0); assert.ok(state.logTail.length <= 8192); assert.match(state.logTail, /DONE/);
-    assert.deepEqual(JSON.parse(readFileSync(h.store.path('evidence.json'), 'utf8')), { tmp: h.store.path('.research/tmp'), cache: h.store.path('.research/cache'), data: h.store.path('mne_data') });
+    assert.deepEqual(JSON.parse(readFileSync(h.store.path('evidence.json'), 'utf8')), { tmp: h.store.path('.research/tmp'), cache: h.store.path('.research/cache'), ...(process.env.MNE_DATA === undefined ? {} : { data: process.env.MNE_DATA }) });
+    assert.equal(existsSync(h.store.path('mne_data')), false, 'No domain-specific data directory is created');
     mutate({ action: 'accept', moduleId: 'M1', evidence: ['evidence.json'], acceptance: ['Checked actual file'] });
     assert.equal(h.store.read()!.modules[0].status, 'completed');
   } finally { await h.clean(); }
@@ -70,7 +71,7 @@ test('job failure and process timeout retain real terminal state', async () => {
   } finally { await h.clean(); }
 });
 
-test('pause cancels descendants, records cancellation, clears wakeups and does not restart on completion', async () => {
+test('stop cancels descendants, records cancellation, clears wakeups and does not restart on completion', async () => {
   const h = fixture(); try {
     const command = node(`const cp=require('child_process'); const child=cp.spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); require('fs').writeFileSync('descendant.pid',String(child.pid)); setInterval(()=>{},1000)`);
     const job = await h.job({ action: 'start', moduleId: 'M1', command });
@@ -112,9 +113,11 @@ test('terminal events wake once, while timed checks are one-shot and user/stop s
     assert.equal(h.store.files.readJob(job.details.id).status, 'succeeded');
     // Emulate the next request consuming the event, then schedule one explicit check.
     h.hooks.context({ messages: [] }, h.ctx);
+    h.hooks.turn_end({ outcome: 'completed' });
     await h.job({ action: 'wait', wakeAfterSeconds: 1 }); await h.settle();
     await until(() => h.sent.length === 2); assert.match(h.sent[1].content, /Scheduled research check/);
     h.hooks.context({ messages: [] }, h.ctx);
+    h.hooks.turn_end({ outcome: 'completed' });
     await h.job({ action: 'wait', wakeAfterSeconds: 1 }); await h.settle();
     await h.hooks.input({ source: 'interactive', text: 'Change direction' }, h.ctx);
     await new Promise(r => setTimeout(r, 1100)); assert.equal(h.sent.length, 2);
@@ -159,6 +162,7 @@ test('real Pi SDK: timed wake, user question during a job, terminal wake and fin
         const common = { expectedRevision: c.revision, reason: 'SDK background test' };
         if (pending) args = { ...common, action: 'resolve', instructionId: pending.id };
         else if (!scheduled) { scheduled = true; name = 'research_job'; args = { action: 'wait', wakeAfterSeconds: 1 }; }
+        else if (!job && !JSON.stringify(context).includes('Scheduled research check')) { throw new Error('Unexpected model request after wait before wake'); }
         else if (!job && JSON.stringify(context).includes('Scheduled research check')) {
           name = 'research_job'; args = { action: 'start', moduleId: 'M1', timeoutSeconds: 10, command: node("const fs=require('fs');const t=setInterval(()=>{if(fs.existsSync('release')){fs.writeFileSync('evidence.txt','observed');clearInterval(t)}},20)") };
         } else if (job?.status === 'succeeded' && c.modules[0].status !== 'completed') {
@@ -197,14 +201,13 @@ test('real Pi SDK: timed wake, user question during a job, terminal wake and fin
   } finally { await controller?.pause('Session shutdown'); session.dispose(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test('scheduled wake honors the overall wall-clock deadline', async t => {
+test('waiting wall-clock time does not spend active model time', async t => {
   const h = fixture(); const now = Date.now();
   try {
     await h.job({ action: 'wait', wakeAfterSeconds: 1 }); await h.settle();
     t.mock.method(Date, 'now', () => now + 31 * 60000);
     await new Promise(r => setTimeout(r, 1200));
-    assert.equal(h.sent.length, 0); assert.equal(h.controller.active, false);
-    assert.match(h.store.read()!.control.reason, /budget/);
+    assert.equal(h.sent.length, 1); assert.equal(h.controller.active, true);
   } finally { t.mock.restoreAll(); await h.clean(); }
 });
 
@@ -219,5 +222,113 @@ test('stale worker identities are interrupted and cannot be used to kill a recyc
     assert.equal(h.store.files.readJob(job.id).status, 'interrupted');
     assert.equal((await h.runner.cancelJob(job.id, h.root)).status, 'interrupted');
     assert.ok(processIdentity(process.pid));
+  } finally { await h.clean(); }
+});
+
+
+test('pause preserves owned jobs and lock, records completion without waking, resumes without restarting', async () => {
+  const h = fixture(); try {
+    const job = await h.job({ action: 'start', moduleId: 'M1', command: node("const fs=require('fs');const t=setInterval(()=>{if(fs.existsSync('release'))clearInterval(t)},20)") });
+    await h.job({ action: 'wait', wakeAfterSeconds: 1 }); await h.settle();
+    await h.controller.pause('User pause');
+    assert.equal(h.controller.active, false);
+    assert.equal(h.store.files.readJob(job.details.id).status, 'running');
+    assert.ok(existsSync(h.store.path('.research/controller.lock')));
+    writeFileSync(h.store.path('release'), 'go');
+    await until(() => h.store.files.events().some(e => e.jobId === job.details.id));
+    assert.equal(h.sent.length, 0);
+    assert.equal(h.store.files.events()[0].delivered, undefined);
+    await h.controller.receive('Inspect finished work', h.ctx as any);
+    assert.equal(h.store.files.jobs().length, 1);
+    h.hooks.context({ messages: [] }, h.ctx);
+    h.hooks.turn_end({ outcome: 'error' });
+    assert.equal(h.store.files.events()[0].delivered, undefined);
+    h.hooks.turn_end({ outcome: 'completed' });
+    assert.equal(h.store.files.events()[0].delivered, true);
+  } finally { await h.clean(); }
+});
+
+test('wait terminates, rejects unresolved instructions and rejects mixed or nested batches', async () => {
+  const h = fixture(); try {
+    const wait = await h.job({ action: 'wait', wakeAfterSeconds: 1 });
+    assert.equal(wait.terminate, true); assert.equal(wait.details.waitRequested, true);
+    assert.equal(h.store.read()!.control.wait?.state, 'requested');
+    h.controller.instruction('New requirement');
+    assert.equal((await h.job({ action: 'wait', wakeAfterSeconds: 1 })).isError, true);
+    const ctx = { ...h.ctx, sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall' }, { type: 'toolCall' }] } }] } };
+    assert.equal(h.hooks.tool_call({ toolName: 'research_job', input: { action: 'wait' } }, ctx).block, true);
+    assert.equal(h.hooks.tool_call({ toolName: 'research_job', input: { action: 'wait' }, parentToolCallId: 'outer' }, ctx).block, true);
+  } finally { await h.clean(); }
+});
+
+test('model turn budget pauses without cancelling a managed job', async () => {
+  const h = fixture(); try {
+    const job = await h.job({ action: 'start', moduleId: 'M1', command: node('setTimeout(()=>{},10000)') });
+    for (let i = 0; i < 101; i++) h.hooks.turn_start({}, h.ctx);
+    await h.hooks.agent_settled({ aborted: true }, h.ctx);
+    assert.equal(h.controller.active, false);
+    assert.match(h.store.read()!.control.reason, /turn budget/);
+    assert.equal(h.store.files.readJob(job.details.id).status, 'running');
+  } finally { await h.clean(); }
+});
+
+test('real SDK rejects mixed wait and stops the 101st turn before calling provider', async () => {
+  const { createAgentSession, DefaultResourceLoader, SettingsManager, SessionManager } = await import('@earendil-works/pi-coding-agent');
+  const { createAssistantMessageEventStream } = await import('@earendil-works/pi-ai');
+  const { zeroUsage } = await import('../extensions/researcher/usage.ts');
+  const h = fixture(); let requests = 0;
+  await h.controller.pause('Session shutdown');
+  const model: any = { id: 'local', name: 'local', provider: 'loop-test', api: 'openai-completions', baseUrl: 'http://offline.invalid', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 1024 };
+  const settings = SettingsManager.inMemory({ packages: [], extensions: [], skills: [], retry: { enabled: false }, compaction: { enabled: false } });
+  let controller!: ResearchController;
+  const loader = new DefaultResourceLoader({ cwd: h.root, agentDir: h.store.path('.research/test-agent'), settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, extensionFactories: [pi => {
+    controller = new ResearchController(pi, h.runner); controller.bind();
+    pi.on('session_start', (_e, ctx) => controller.activate(ctx));
+    pi.registerProvider(model.provider, { api: model.api, baseUrl: model.baseUrl, apiKey: 'offline', models: [model], streamSimple: () => {
+      requests++;
+      const calls: any[] = [{ type: 'toolCall', id: `read-${requests}`, name: 'research_checklist', arguments: { action: 'read' } }];
+      if (requests === 1) calls.push({ type: 'toolCall', id: 'mixed-wait', name: 'research_job', arguments: { action: 'wait', wakeAfterSeconds: 1 } });
+      const message: any = { role: 'assistant', content: calls, api: model.api, provider: model.provider, model: model.id, usage: zeroUsage(), stopReason: 'toolUse', timestamp: Date.now() };
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => { stream.push({ type: 'done', reason: 'toolUse', message }); stream.end(message); }); return stream;
+    } });
+  }] });
+  await loader.reload();
+  const { session } = await createAgentSession({ cwd: h.root, model, resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.create(h.root, h.store.path('.research/test-sessions')), tools: ['research_checklist', 'research_job'] });
+  try {
+    await session.bindExtensions({ mode: 'print' });
+    await session.prompt('Keep invoking tools');
+    assert.equal(requests, 100);
+    assert.equal(h.store.read()!.control.state, 'paused');
+    assert.equal(h.store.read()!.control.wait, undefined);
+    assert.ok(JSON.stringify(session.messages).includes('own tool batch'));
+  } finally { await controller.pause('Session shutdown'); session.dispose(); await h.clean(); }
+});
+
+
+test('failed resume retains owner lock for live jobs and preserves user input', async () => {
+  const h = fixture(); try {
+    const job = await h.job({ action: 'start', moduleId: 'M1', command: node('setTimeout(()=>{},10000)') });
+    await h.controller.pause('User pause');
+    writeFileSync(h.store.path('.research/events.json'), '{broken');
+    assert.equal(await h.controller.receive('Keep this instruction', h.ctx as any), 'blocked');
+    assert.ok(existsSync(h.store.path('.research/controller.lock')));
+    assert.equal(h.store.files.readJob(job.details.id).status, 'running');
+    assert.ok(h.store.readInbox().includes('Keep this instruction'));
+    writeFileSync(h.store.path('.research/events.json'), '[]');
+  } finally { await h.clean(); }
+});
+
+
+test('MNE_DATA is an ordinary environment value, without path validation or directory creation', async () => {
+  const h = fixture(); try {
+    const external = h.root + '-external-data';
+    assert.equal(existsSync(external), false);
+    const job = await h.job({ action: 'start', moduleId: 'M1', env: { MNE_DATA: external }, command: node('console.log(process.env.MNE_DATA)') });
+    assert.equal(job.isError, undefined);
+    await until(() => h.store.files.readJob(job.details.id).status === 'succeeded');
+    assert.equal(h.store.files.jobStatus(job.details.id).logTail.trim(), external);
+    assert.equal(existsSync(external), false);
+    assert.equal(existsSync(h.store.path('mne_data')), false);
   } finally { await h.clean(); }
 });

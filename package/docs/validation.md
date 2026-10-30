@@ -1,3 +1,25 @@
+# 0.6.0 生命周期验证
+
+本次类型检查和 36 项测试通过。真实 Pi SDK 验证 wait 后无多余请求、混合批次 wait 被拒绝、连续工具调用在第 101 个 turn 前停止请求；进程测试验证 pause 保留 J 与 owner 锁、事件在正常 turn_end 才确认、异常可重投递、stop 清理进程组。真实 Pi TUI 离线冒烟验证定时唤醒、后台下载期间回答输入、模块顺序与最终审计。上述自动化回归没有调用付费模型。
+
+## 0.6.0 真实 API：blsc / Kimi-K3
+
+2026-10-29 使用当前 Pi 配置的 `blsc/Kimi-K3` 完成真实 API 验证，没有切换其他账户或环境变量密钥。一次连通性探测消耗 122 tokens；随后生命周期验证成功，17 次请求、146,563 tokens（输入 1,088，输出 5,335，缓存读取 113,296，缓存写入 26,844）。配置价格为零，不能据此认定免费或推算实际账单。
+
+验证包括：真实请求携带当前 Skill 全文；启动单个受控后台进程；一次定时唤醒后停止模型轮询；pause 保留进程及 owner 锁；普通用户输入恢复并回答 42 字节问题；同一个进程完成后事件唤醒；两个模块顺序验收及最终完成审计。进程仅在隔离目录生成 42 字节文件，不执行真实科研训练。
+
+模型两次将一条 criterion 拆成两条 acceptance，工具正确拒绝；第 13 次请求自行修正，后续完成。该现象属于模型的协议使用错误及恢复，不是等待循环。此次未重新验证独立子会话评审。
+
+复跑命令（会产生真实 API 费用，不属于 npm test）：
+
+```bash
+node --experimental-strip-types tests/online-background-validation.ts --run-paid --provider blsc --model Kimi-K3
+```
+
+脚本限制最多 24 次请求、每次 4096 输出 tokens、总时限 8 分钟；只使用当前 Pi 配置。在 `/tmp/research-online-lifecycle-*` 保存隔离工作区、原生 JSONL 会话及 `online-lifecycle-validation.json`。本次证据：`/tmp/research-online-lifecycle-1vDBbG/online-lifecycle-validation.json`；连通性探测：`/tmp/research-blsc-probe-Xl5qKn/probe.json`。没有操作 task3。
+
+下面保留此前版本的验证记录。
+
 # 验证范围
 
 验证环境：Pi 1.4.0、Node.js 24.18.0，Linux。开发依赖版本保存在 package-lock.json。

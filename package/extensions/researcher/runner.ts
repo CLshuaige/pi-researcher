@@ -55,8 +55,8 @@ export class ResearchRunner {
     const previous = store.jobs().find(j => j.status === 'running' && j.fingerprint === fingerprint);
     if (previous) return previous;
     if (store.activeWork().length >= readConfig(root).maxConcurrent) throw new Error('Research concurrency limit reached; wait or cancel a task/job');
-    const env = { ...request.env, TMPDIR: store.path('.research/tmp'), XDG_CACHE_HOME: store.path('.research/cache'), MNE_DATA: store.path(request.env?.MNE_DATA ?? 'mne_data') };
-    for (const directory of [env.TMPDIR, env.XDG_CACHE_HOME, env.MNE_DATA]) mkdirSync(directory, { recursive: true });
+    const env = { ...request.env, TMPDIR: store.path('.research/tmp'), XDG_CACHE_HOME: store.path('.research/cache') };
+    for (const directory of [env.TMPDIR, env.XDG_CACHE_HOME]) mkdirSync(directory, { recursive: true });
     const id = `J-${randomUUID()}`, dir = store.jobPath(id);
     mkdirSync(dir, { recursive: true });
     const logPath = `.research/jobs/${id}/output.log`;
@@ -110,6 +110,11 @@ export class ResearchRunner {
     const item = this.active.get(id);
     if (!item) throw new Error("Task is not running in this Pi runtime; inspect its owner before resuming");
     item.controller.abort(new Error("Cancelled by user"));
+  }
+  async cancelForeground() {
+    const tasks = [...this.active.values()];
+    for (const task of tasks) task.controller.abort(new Error('Research paused'));
+    await Promise.all(tasks.map(task => task.done));
   }
   async shutdown() {
     const jobs = [...this.jobs.values()];

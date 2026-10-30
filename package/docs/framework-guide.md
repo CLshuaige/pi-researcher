@@ -1,6 +1,6 @@
 # Researcher 框架理解与维护指南
 
-本文面向使用者和代码维护者，按当前 **0.5.0** 实现解释主会话、清单模块、Skill、子会话、子任务、后台进程和实验 engine 的关系。排查“为什么没有继续”“为什么输入还在排队”“为什么子任务完成却不能验收”时，先确认自己正在查看哪一层状态。
+本文面向使用者和代码维护者，按当前 **0.6.0** 实现解释主会话、清单模块、Skill、子会话、子任务、后台进程和实验 engine 的关系。排查“为什么没有继续”“为什么输入还在排队”“为什么子任务完成却不能验收”时，先确认自己正在查看哪一层状态。
 
 Researcher 的核心是：**主会话根据清单顺序推进研究；Controller 控制输入、请求上下文和结束边界；Runner 执行有界工作；成果交回主会话后，再按模块标准验收。** Skill 提供方法指导，不是独立执行器。只有托管进程 `research_job` 会立即返回，让主会话在工作尚未完成时继续响应用户。
 
@@ -98,7 +98,7 @@ Skill 文件读取失败显示 `SKILL LOAD FAILED` 和明确的资源错误，�
 |---|---|
 | `input` → `receive()` | 统一接收、恢复判断和指令持久化；扩展来源的自动输入不触发恢复。 |
 | `agent_start` / `before_agent_start` | 标记主会话忙碌，追加管理提示。 |
-| `context` → `checkpoint()` | 在模型请求前刷新清单和 Skill；当前请求消费已观察到的唤醒原因。 |
+| `context` → `checkpoint()` | 在模型请求前刷新清单和 Skill；当前请求携带待投递事件，正常 turn_end 后确认。 |
 | `tool_call` | 检查是否可执行当前模块，并检查写入、下载和实验目录等边界。 |
 | `agent_before_settle` → `settlement()` | 集中计算结束决定，统一记录状态和续跑次数。 |
 | `agent_settled` | 标记空闲、处理 abort、更新状态栏，尝试安排唤醒。 |
@@ -112,7 +112,7 @@ Skill 文件读取失败显示 `SKILL LOAD FAILED` 和明确的资源错误，�
 
 | 情况 | 同一运行时、同一目录的普通新输入能否恢复 | 资源处理 |
 |---|---|---|
-| Escape、`pause`、预算/异常等可恢复暂停 | 能；等待清理完成后开启新一轮预算 | 取消活动 T、J，清除唤醒定时器和 widgets，释放锁。 |
+| Escape、`pause`、预算/异常等可恢复暂停 | 能；等待清理完成后开启新一轮预算 | 取消前台 T，保留 J、其 widget 和所有权；清除唤醒定时器与 Skill widget。无活动工作且已 settled 后释放锁。 |
 | `stop` 整体停止 | 不能；需要 `/researcher resume` 或显式研究指令 | 同样取消清理。 |
 | 研究 `completed` | 不能自动恢复 | 同样清理；成果和审计保留。 |
 | 退出或 `/reload` | 不能；新的 Controller 不继承内存恢复标志 | 旧运行时 shutdown；显式启动后读取持久化记录。 |
@@ -236,7 +236,7 @@ Skill 文件读取失败显示 `SKILL LOAD FAILED` 和明确的资源错误，�
 {"action":"wait","wakeAfterSeconds":60}
 ```
 
-`wait` 返回登记结果，不会在工具内部 sleep，也不会强制结束模型当前轮；模型还需结束回答，Controller 才能在结束边界进入 waiting。有运行中的 J 时，即使未调用 wait，满足条件也会自然等待进程完成。只有计时、没有运行中 J 的等待也允许；既无 J 又无时间的 wait 会报错。
+`wait` 必须独占工具批次且先 resolve 指令；返回登记结果和 `terminate: true`，正常结束工具循环，Controller 在结束边界确认 waiting。它不在工具内部 sleep。有运行中的 J 时，即使未调用 wait，满足条件也会自然等待进程完成。只有计时、没有运行中 J 的等待也允许；既无 J 又无时间的 wait 会报错。
 
 用户此时问“一共要下载多少数据”，主会话可读取已有日志/元数据、回答并 resolve，下载继续。框架不会自动计算数据总量：J widget 只有任务 ID、running 状态和已用时间；日志尾也可能因程序缓冲暂时为空。是否能给出准确总量取决于程序输出和数据集元信息。
 
@@ -246,7 +246,7 @@ Runner 校验当前模块、工作目录、超时和环境变量，写入 J 记�
 
 完全相同的活动命令请求按指纹去重；已终止的任务再次执行会产生新 J ID，不自动续跑失败下载。指纹包含研究/目标版本、模块、命令、cwd、env 和超时，并非 shell 语义等价比较。
 
-`cwd` 和 `MNE_DATA` 必须位于研究根内；未指定 `MNE_DATA` 时默认根下 `mne_data`。`TMPDIR`、`XDG_CACHE_HOME` 由框架设置到 `.research/`，env 值不写入 job.json（只记变量名）。普通 Bash 不会自动获得 J 的 MNE_DATA 默认值。命令文本和程序日志仍会被保存，不能把秘密值直接写进命令或让程序打印出来。
+`cwd` 必须位于研究根内；`MNE_DATA` 等环境变量原样透传，Runner 不提供默认值、不做专用路径校验，也不创建其目录。目录由任务命令或实际使用该变量的程序管理。`TMPDIR`、`XDG_CACHE_HOME` 由框架设置到 `.research/`，env 值不写入 job.json（只记变量名）。命令文本和程序日志仍会被保存，不能把秘密值直接写进命令或让程序打印出来。
 
 命令应保持在 worker 前台，不使用 `nohup`、末尾 `&` 或自行 daemonize。这是使用合同，没有 shell 语义分析器来机械禁止所有脱离方式。取消先向进程组发 SIGTERM，约 500ms 后强制 SIGKILL；正常退出也清理剩余组内进程。宿主失联触发 worker 的 IPC 断开清理。worker 自己的退出码不等于科研命令退出码，应查看 `exit.json`/J 状态。
 
@@ -326,16 +326,16 @@ T 续接可明确指向同一 T 下旧 attempt 的实验目录；新的 T 不能
 
 | 限额 | 当前默认值与入口 | 含义 |
 |---|---|---|
-| 主闭环时间 | 30 分钟；`controller.ts` | 包含 waiting 时间；恢复开启新一轮，运行中输入不重置。 |
+| 主闭环时间 | 30 分钟累计活跃时间；`controller.ts` | 不含 waiting/paused 时间；恢复开启新一轮，运行中输入不重置。 |
 | 主自动续跑 | 20 次；`controller.ts` | 普通自动继续和真实自动唤醒共用；不等于模型请求数。 |
 | 无进展 | 指纹连续重复计数达到 3；`controller.ts` | 触发暂停；单纯等待不累积此计数。 |
 | 活动工作数 | `maxConcurrent: 2`，范围 1–8 | 同一项目运行中的 T 和 J 合计，读取任务记录计算；不是 GPU 调度器或通用跨进程原子配额。 |
 | T 超时/请求 | `timeoutMs: 900000`、`maxTurns: 30` | 每次 attempt；请求数包含该会话的压缩请求。 |
-| J 超时 | `timeoutSeconds: 1200`，范围 1–86400 | 单个进程；仍受主闭环剩余时间制约。 |
+| J 超时 | `timeoutSeconds: 1200`，范围 1–86400 | 单个进程；暂停模型不取消 J，其超时继续按墙钟计时。 |
 | 一次时间唤醒 | `wakeAfterSeconds: 1–1800` | 一次性，不是周期定时器；不会延长闭环截止时间。 |
 | engine | 默认 15 分钟、最多 12 步、每步最多 2 次重试 | 只读阶段最多 20 次模型请求，可写阶段 40 次；受外层委派时间限制。 |
 
-前面三项是 Controller 中的常量，不是 `.pi/research.json` 已支持的配置项。token/费用从 SDK 会话使用量聚合返回，engine 嵌套使用量经工具传回；预算次数与费用统计不是同一个量。
+主模型还限定每次激活最多 100 个 turn（不含子会话与独立压缩请求）。这些主控制项是 Controller 中的常量，不是 `.pi/research.json` 已支持的配置项。token/费用从 SDK 会话使用量聚合返回，engine 嵌套使用量经工具传回；预算次数与费用统计不是同一个量。
 
 ## 9. 常见问题排查
 
@@ -380,3 +380,5 @@ T 续接可明确指向同一 T 下旧 attempt 的实验目录；新的 T 不能
 已有回归入口包括 `tests/checklist-protocol.test.ts`（工具协议、Skill 展示、输入和预算）、`tests/researcher.test.ts`（状态、Runner、真实 SDK 闭环）、`tests/background-jobs.test.ts`（进程、等待、唤醒、取消、PID 身份），以及 `tests/tui-smoke.py` / `tests/fixtures/tui-provider.ts`（真实 Pi 终端中的离线确定性验证）。
 
 修订运行行为后执行 `npm run check`；修改发布文件或入口时执行 `npm run pack:check`；修改输入、widget 或唤醒生命周期时再执行 `npm run test:tui`。这些验证使用本地确定性 provider，不调用付费模型。在线 provider 的实际连通性和研究质量需另行验证，不能用离线通过代替。详细范围和既有结果见 [验证说明](validation.md)。
+
+0.6.0 完整生命周期节点、暂停保留进程与事件投递合同见 [生命周期控制](lifecycle.md)。

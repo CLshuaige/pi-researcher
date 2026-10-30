@@ -13,7 +13,7 @@
 - `/researcher status`、`capabilities`、`inspect <任务ID>`：只读查看。
 - `/researcher stop <任务ID>`：兼容原有单任务取消。
 
-每轮默认 30 分钟，最多 20 次自动续跑，连续三次无实质进展暂停。模块状态、证据引用、任务终态和目标版本参与进展判断，文字说明和审计长度不参与。全部剩余模块阻塞时暂停。预算耗尽不代表研究完成。Escape/pause 后，同一研究会话收到新的普通用户指令会恢复闭环；没有新输入不会自动唤醒。stop、完成、退出/reload 后须显式 resume。
+每轮默认 30 分钟累计活跃时间、100 个主模型 turn，最多 20 次自动续跑，连续三次无实质进展暂停。模块状态、证据引用、任务终态和目标版本参与进展判断，文字说明和审计长度不参与。全部剩余模块阻塞时暂停。预算耗尽不代表研究完成。Escape/pause 后，同一研究会话收到新的普通用户指令会恢复闭环；没有新输入不会自动唤醒。stop、完成、退出/reload 后须显式 resume。
 
 普通输入和命令输入共用同一个接收函数；只有命令入口额外调用 `sendUserMessage`。普通输入顺序如下：
 
@@ -67,7 +67,7 @@ fetch_arxiv 当前使用外部全局缓存，研究运行时阻止调用，需�
 {"action":"start","moduleId":"M1","command":"python3 -c \"from moabb.datasets import BNCI2014_001; BNCI2014_001().download()\"","timeoutSeconds":1200}
 ```
 
-默认 cwd 为研究根目录。TMPDIR、XDG_CACHE_HOME 分别固定到根目录内 `.research/tmp`、`.research/cache`；MNE_DATA 默认 `<研究根目录>/mne_data`，自动建目录，也可通过 env 指定另一个根目录内路径。cwd 必须已经存在于根目录内。env 值不写入任务记录。命令本身仍可覆盖环境和路径；这沿用协作约定，不是系统沙箱。
+默认 cwd 为研究根目录。TMPDIR、XDG_CACHE_HOME 分别固定到根目录内 `.research/tmp`、`.research/cache`；其他环境变量（包括 MNE_DATA）作为普通变量透传，不做专用路径校验，也不据此创建目录。cwd 必须已经存在于根目录内。env 值不写入任务记录。命令本身仍可覆盖环境和路径；这沿用协作约定，不是系统沙箱。
 
 查看与取消：
 
@@ -78,7 +78,7 @@ fetch_arxiv 当前使用外部全局缓存，研究运行时阻止调用，需�
 
 status 省略 jobId 返回任务列表；指定 ID 返回状态、退出码、信号和最多 8 KiB 日志尾部。命令入口 `/researcher inspect J-...`、`stop J-...` 也可使用。重复启动同一模块下参数完全相同的活动命令返回原 ID，避免重复下载；进程与子会话共享 maxConcurrent 限制。
 
-没有其他工作时结束当前回复，控制器自动进入 `control.state: waiting`。模块仍为 running，controller lock 保留，主会话不被长工具占用；TUI 每 2 秒刷新运行时长，不调用模型。任务退出会触发一次唤醒，状态可能是 succeeded、failed、cancelled、timed_out 或 interrupted。
+没有其他工作时单独调用 wait（成功返回 terminate），或自然结束当前回复，控制器进入 `control.state: waiting`。模块仍为 running，controller lock 保留，主会话不被长工具占用；TUI 每 2 秒刷新运行时长，不调用模型。任务退出会触发一次唤醒，状态可能是 succeeded、failed、cancelled、timed_out 或 interrupted。
 
 需要定时检查时：
 
@@ -88,11 +88,11 @@ status 省略 jobId 返回任务列表；指定 ID 返回状态、退出码、�
 
 该动作安排**一次**检查，时间范围 1–1800 秒；之后结束当前回复。省略 wakeAfterSeconds 则必须存在活动任务，只等待任务事件或用户输入。即使没有本地任务，也可指定时间等待外部条件。定时器不会阻塞工具调用，也不会反复自动安排下一次；需要再次检查时由模型重新设置。
 
-用户输入优先：收到新输入立即退出等待、取消旧定时器并保存指令，保持已有任务继续运行，不重置预算。当前模型回复完成后，若任务还在运行，可再次进入等待。任务退出与计时同时发生时合并为一次唤醒；模型正在处理用户输入时不排入过期自动消息。等待时不增加无进展或续跑计数；每次实际自动唤醒消耗一次续跑额度，整体 30 分钟时限和每任务 timeoutSeconds 同时生效。
+用户输入优先：收到新输入立即退出等待、取消旧定时器并保存指令，保持已有任务继续运行，不重置预算。当前模型回复完成后，若任务还在运行，可再次进入等待。任务退出与计时同时发生时合并为一次唤醒；模型正在处理用户输入时不排入过期自动消息。等待时不增加无进展或续跑计数；每次实际自动唤醒消耗一次续跑额度，waiting 不计入主会话累计活跃时间；每任务 timeoutSeconds 按墙钟计时。
 
 活动进程阻止当前模块 accept/skipped、重新 plan 和改变 objective；如需修改目标，先取消或等待活动工作，再 resolve。进程退出 0 只表示 succeeded，仍需核查文件再通过 checklist 验收，不能自动认为下载完整或科研结论正确。
 
-pause、stop、Escape、shutdown/reload 取消整个托管进程组（先 TERM，必要时 KILL），清除定时器。worker 通过 IPC 监测宿主失联，宿主异常退出也会触发清理。进程 PID 与 Linux 启动身份一起保存，失效记录标记 interrupted，不根据陈旧 PID 杀进程。完成事件不会恢复已经暂停或停止的会话。
+pause/Escape 暂停模型但保留托管 J，取消前台 T 和定时器；stop、shutdown/reload 取消整个托管进程组（先 TERM，必要时 KILL），清除定时器。worker 通过 IPC 监测宿主失联，宿主异常退出也会触发清理。进程 PID 与 Linux 启动身份一起保存，失效记录标记 interrupted，不根据陈旧 PID 杀进程。完成事件不会恢复已经暂停或停止的会话。
 
 任务记录位于 `.research/jobs/J-.../job.json`，完整日志为 output.log，实际退出记录为 exit.json；任务启动和当前会话内的终态变化进入清单审计。已有产物保留。重启/reload 后需要显式 resume，取消或中断的进程不会自动重跑；先检查下载缓存和退出记录，再决定是否启动新任务。一次定时等待只在当前活动会话有效，不是跨退出持久运行的计划任务。
 
@@ -105,3 +105,5 @@ checklist.json 保存当前状态与审计；.research/checklist 保存 revision
 ## 验证
 
 `npm ci --ignore-scripts` 后运行 `npm run check`、`npm run pack:check`。测试含真实 Pi 1.4.0 SDK 的本地确定性 provider，不访问付费模型。闭环完成只是程序协议通过，证据是否足以支持科研结论仍需核查。
+
+0.6.0 的逐节点状态、事件确认和暂停所有权规则见 [生命周期控制](lifecycle.md)。

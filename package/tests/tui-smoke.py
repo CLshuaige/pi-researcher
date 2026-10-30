@@ -56,14 +56,21 @@ with tempfile.TemporaryDirectory(prefix="research-tui-") as tmp:
         deadline = time.monotonic() + 25
         completed = False
         question_sent = False
+        pause_sent = False
         answered_while_running = False
         while time.monotonic() < deadline and proc.poll() is None:
             drain(0.2)
             c = json.loads((root / "checklist.json").read_text())
-            if c["control"]["state"] == "waiting" and c["control"]["continuations"] >= 1 and not question_sent:
+            if c["control"]["state"] == "waiting" and c["control"]["continuations"] >= 1 and not pause_sent:
+                os.write(master, b"/researcher pause\r")
+                pause_sent = True
+            elif pause_sent and c["control"]["state"] == "paused" and not question_sent:
+                job_files = list((root / ".research/jobs").glob("*/job.json"))
+                assert len(job_files) == 1 and json.loads(job_files[0].read_text())["status"] == "running", "Pause cancelled the managed job"
+                assert (root / ".research/controller.lock").exists(), "Paused job lost its owner lock"
                 os.write(master, b"How much data?\r")
                 question_sent = True
-            elif question_sent and c["control"]["state"] == "waiting" and any(i["text"] == "How much data?" and i.get("resolution") for i in c["control"]["instructions"]):
+            elif question_sent and not answered_while_running and c["control"]["state"] == "waiting" and any(i["text"] == "How much data?" and i.get("resolution") for i in c["control"]["instructions"]):
                 job_files = list((root / ".research/jobs").glob("*/job.json"))
                 assert len(job_files) == 1 and json.loads(job_files[0].read_text())["status"] == "running"
                 answered_while_running = True
@@ -74,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="research-tui-") as tmp:
         drain(0.5)
         text = output.decode(errors="replace")
         assert answered_while_running, "User input was not handled while the background job ran"
-        assert c["control"]["continuations"] == 2, "Expected one timer wake and one completion wake"
+        assert c["control"]["continuations"] == 1, "Resume starts a fresh budget; expect one completion wake"
         assert "expected 42 bytes" in text
         assert completed, "TUI research did not complete"
         assert "Skills: research-task" in text, "First Skill name was not rendered"
@@ -82,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="research-tui-") as tmp:
         assert "skillInstructions" not in text and "research-checkpoint" not in text, "Hidden checkpoint leaked into TUI"
         assert "/skills/" not in text and "SKILL.md" not in text and "name: research-task" not in text, "Skill paths or contents leaked into TUI"
         assert c["audit"][-1]["reason"] == "All modules accepted"
-        print("TUI smoke passed: Skill names rendered and changed; hidden checkpoint, Skill bodies and paths absent; completion audited; timer wake and user question during managed download verified.")
+        print("TUI smoke passed: Skill names rendered and changed; hidden checkpoint, Skill bodies and paths absent; completion audited; timer wake, pause preserving the process and owner lock, native-input resume and user question during managed download verified.")
     except Exception:
         # Local deterministic content only; retain terminal evidence for diagnosis.
         fd, name = tempfile.mkstemp(prefix="research-tui-failure-", suffix=".log")

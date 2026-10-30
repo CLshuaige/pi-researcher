@@ -2,7 +2,7 @@
 
 完整的事件流程、工具范围、模块与子会话关系、后台唤醒、状态文件及排障入口见 [框架理解与维护指南](framework-guide.md)。本文保留架构和交接协议的简要说明。
 
-项目级闭环保留三个职责边界：Controller 处理事件与生命周期，ChecklistStore/操作函数管理状态与持久化，Runner 执行子任务和托管进程，Controller 合并进程事件与一次性定时唤醒。modules.ts 仅映射 Skill 资源，不引入额外管理器。详见 [闭环协议](closed-loop.md)。下述子任务执行机制继续保留。
+项目级闭环保留三个职责边界：Controller 处理事件与生命周期，ChecklistStore/操作函数管理状态与持久化，Runner 执行子任务和托管进程，Controller 合并进程事件与一次性定时唤醒。modules.ts 仅映射 Skill 资源，不引入额外管理器。详见 [闭环协议](closed-loop.md) 和 [生命周期控制](lifecycle.md)。下述子任务执行机制继续保留。
 
 七个 Skill 定义方法，Research Extension 定义执行边界，独立会话承载一次具体子任务。主会话保留整体目标和采纳决定；子会话不接收父会话完整历史。
 
@@ -38,7 +38,7 @@ BRIEF.md、STATE.md 自动加入输入列表，其余输入必须是工作区内
 
 ## 生命周期
 
-前台委派创建 SDK AgentSession，装配显式资源，绑定扩展，执行 prompt，等待真正完成，然后释放会话。取消信号向下传播；shutdown 等待活动调用清理，记录失败/取消状态。原始 SDK 会话仍留在磁盘。
+前台委派创建 SDK AgentSession，装配显式资源，绑定扩展，执行 prompt，等待真正完成，然后释放会话。暂停取消前台 SDK 委派但保留托管 J；shutdown 取消全部工作并等待活动调用清理，记录失败/取消状态。原始 SDK 会话仍留在磁盘。
 
 普通子任务不加载通用 subagent 扩展，也不允许继续委派。experiment 子会话可以调用 engine；engine 内部沿用专门的分析/计划/执行/评审/总结调用，每次使用独立 SDK 会话，受同一取消信号和外层时间限制。它是明确的实验工具内部行为，不是自由递归的 Agent 团队。
 

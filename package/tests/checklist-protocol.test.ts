@@ -283,14 +283,14 @@ test('input waits for child cancellation; late abort cannot make stop resumable'
     let finish!: () => void;
     const shuttingDown = new Promise<void>(resolve => { finish = resolve; });
     const runner = (h.controller as any).runner as ResearchRunner;
-    const original = runner.shutdown.bind(runner);
-    runner.shutdown = () => shuttingDown;
+    const original = runner.cancelForeground.bind(runner);
+    runner.cancelForeground = () => shuttingDown;
     const pause = h.controller.pause('User pause');
     let received = false;
     const input = h.controller.receive('Wait for cleanup', h.ctx as any).then(() => { received = true; });
     await Promise.resolve(); assert.equal(received, false);
     assert.equal(h.store.read()!.control.instructions.length, 0);
-    finish(); await pause; await input; runner.shutdown = original;
+    finish(); await pause; await input; runner.cancelForeground = original;
     assert.equal(h.controller.active, true);
     const stop = h.controller.pause('User stop', 'stopped');
     await h.hooks.agent_settled({ aborted: true }, h.ctx); await stop;

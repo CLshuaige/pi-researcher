@@ -1,6 +1,6 @@
 {
   "name": "@gewu/pi-researcher",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A TUI-first research workspace with seven skills and bounded, resumable Pi child sessions",
   "type": "module",
   "license": "UNLICENSED",

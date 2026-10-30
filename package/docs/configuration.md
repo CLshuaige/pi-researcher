@@ -58,6 +58,6 @@
 
 `/researcher stop`（或 `/research stop`）停止本 runtime 的闭环，取消活动 T/J 和定时器；`/researcher stop T-...` 或 `stop J-...` 只向指定的本 runtime 任务请求取消。其他进程的任务不能凭一个状态文件被当成已停止。进程意外退出后，状态查看会将已确认死亡的 owner/worker 显示为 `interrupted`。T 续接会重新取得任务锁；J 不自动续跑，需核对产物后重新启动。
 
-主闭环的 30 分钟、20 次自动续跑及无进展阈值目前在 Controller 中固定，不是本配置文件支持的字段。J 单独使用 `timeoutSeconds`，时间唤醒使用 `wakeAfterSeconds`。各层预算、等待与恢复关系见 [框架理解与维护指南](framework-guide.md)。
+主闭环的 30 分钟累计活跃时间、100 个模型 turn、20 次自动续跑及无进展阈值目前在 Controller 中固定，不是本配置文件支持的字段。J 单独使用 `timeoutSeconds`，时间唤醒使用 `wakeAfterSeconds`。各层预算、等待与恢复关系见 [框架理解与维护指南](framework-guide.md)。
 
 目录和工具约束是协作边界，不是操作系统沙箱。Bash 和第三方扩展仍有 Pi 进程权限；需要强隔离时在独立容器/用户下运行。第一版不提供 GPU 调度、脱离 TUI 的存活承诺或跨进程并发配额。
