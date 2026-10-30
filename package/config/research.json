@@ -1,0 +1,17 @@
+{
+  "childExtensions": [
+    ".pi/npm/node_modules/pi-web-access/dist/index.js",
+    ".pi/npm/node_modules/@duskmoon/pi-academic-search/src/index.ts",
+    ".pi/npm/node_modules/pi-arxivist/dist/index.js"
+  ],
+  "extraTools": [
+    "web_search",
+    "fetch_content",
+    "get_search_content",
+    "academic_search",
+    "paper_lookup",
+    "paper_citations",
+    "download_pdf",
+    "fetch_arxiv"
+  ]
+}

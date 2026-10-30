@@ -1,1 +1,19 @@
-{"compilerOptions":{"target":"ES2023","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"noEmit":true,"allowImportingTsExtensions":true,"skipLibCheck":true},"include":["extensions/**/*.ts","tests/**/*.ts"]}
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "typeRoots": ["../.pi/dev/node_modules/@types"],
+    "paths": {
+      "@earendil-works/pi-coding-agent": ["../.pi/dev/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
+      "@earendil-works/pi-ai": ["../.pi/dev/node_modules/@earendil-works/pi-ai/dist/index.d.ts"],
+      "typebox": ["../.pi/dev/node_modules/typebox/build/index.d.mts"]
+    }
+  },
+  "include": ["extensions/**/*.ts"]
+}
