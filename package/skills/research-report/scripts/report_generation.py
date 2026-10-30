@@ -239,7 +239,7 @@ def render_report(manifest_path: Path, output: Path, force: bool = False) -> dic
     files["references.bib"] = bibliography.encode("utf-8")
     for filename in preset.files:
         files[filename] = (preset.template_dir / filename).read_bytes()
-    # The exported manifest can be rendered again after moving paper/ elsewhere.
+    # The exported manifest can be rendered again after moving report/ elsewhere.
     portable = {**manifest, "journal": journal.value, "language": manifest.get("language", "zh"),
                 "style": manifest.get("style", "preprint"), "bibliography": "references.bib",
                 "figures": [{**figure, "source": figure["path"]} for figure in figures]}
@@ -305,7 +305,7 @@ def compile_report(output: Path, engine: str = "xelatex", timeout: int = 120) ->
         with tempfile.TemporaryDirectory(prefix=".report-build-", dir=root) as staging:
             build = Path(staging)
             env = os.environ.copy()
-            # BibTeX runs in the build directory; inputs remain in paper/.
+            # BibTeX runs in the build directory; inputs remain in report/.
             for variable in ("BIBINPUTS", "BSTINPUTS"):
                 env[variable] = str(root) + os.pathsep + env.get(variable, "")
             # Keep TeX font/config caches inside the assigned output directory.
@@ -359,16 +359,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Create an unfinished writing workspace without overwriting files")
-    init.add_argument("--output", type=Path, default=Path("paper"))
+    init.add_argument("--output", type=Path, default=Path("report"))
     init.add_argument("--language", choices=("zh", "en"), default="zh")
     render = commands.add_parser("render", help="Validate fragments, assemble main.tex and copy the ICML template")
     render.add_argument("--manifest", type=Path, required=True)
-    render.add_argument("--output", type=Path, default=Path("paper"))
+    render.add_argument("--output", type=Path, default=Path("report"))
     render.add_argument("--force", action="store_true", help="Intentionally replace changed output files")
     check = commands.add_parser("check", help="Check actual LaTeX inputs, citations, references and figure paths")
-    check.add_argument("--output", type=Path, default=Path("paper"))
+    check.add_argument("--output", type=Path, default=Path("report"))
     compile_cmd = commands.add_parser("compile", help="Run XeLaTeX/BibTeX with logs and explicit success status")
-    compile_cmd.add_argument("--output", type=Path, default=Path("paper"))
+    compile_cmd.add_argument("--output", type=Path, default=Path("report"))
     compile_cmd.add_argument("--engine", choices=("xelatex", "lualatex"), default="xelatex")
     compile_cmd.add_argument("--timeout", type=int, default=120, help="Timeout in seconds per command")
     prompts = commands.add_parser("prompt", help="Render a writing prompt for Pi; does not call a model")

@@ -18,13 +18,13 @@
 
 ## 一次调用示例
 
-下面是传给 `subagent` 的参数。将项目、技能和运行目录替换为真实绝对路径，主会话先建立本次成果目录。task 指定完整产物路径，`output: false` 关闭扩展的单文件输出重定向；交接文件由主会话在收到最终回复后保存。
+下面是传给 `subagent` 的参数。示例使用项目根目录下的 `hypothese/`；采用运行子目录或自定义输出位置时，统一替换为本次成果目录的真实绝对路径。将项目和技能目录替换为真实绝对路径，主会话先建立本次成果目录。task 指定完整产物路径，`output: false` 关闭扩展的单文件输出重定向；交接文件由主会话在收到最终回复后保存。
 
 ```json
 {
   "agent": "delegate",
   "cwd": "/absolute/project",
-  "task": "你是本次假说构建的 Proposer，只完成第 1 轮提出，不启动子代理。读取 /absolute/skill/research-hypothesis/references/roles.md 的共同输入及 Proposer 部分并执行。context.md 位于 /absolute/project/research/hypotheses/run-name/context.md，包含主会话从项目 Markdown/JSON 提取的目标和背景；这是第一轮，无历史讨论。将本轮完整候选（包括依据、组成和潜在价值）写入 /absolute/project/research/hypotheses/run-name/round-01-proposer.md。只写该产物，不修改原始材料、共享状态或其他文件，不检索或运行实验。完成后最终回复纯 JSON，按子代理交接约定提供 role、round、status、artifacts、summary、open_questions，其中 artifacts 列出实际产物绝对路径，summary 是本次工作小结；主会话收到后将交接 JSON 保存到 /absolute/project/research/hypotheses/run-name/round-01-proposer.handoff.json。",
+  "task": "你是本次假说构建的 Proposer，只完成第 1 轮提出，不启动子代理。读取 /absolute/skill/research-hypothesis/references/roles.md 的共同输入及 Proposer 部分并执行。context.md 位于 /absolute/project/hypothese/context.md，包含主会话从项目 Markdown/JSON 提取的目标和背景；这是第一轮，无历史讨论。将本轮完整候选（包括依据、组成和潜在价值）写入 /absolute/project/hypothese/round-01-proposer.md。只写该产物，不修改原始材料、共享状态或其他文件，不检索或运行实验。完成后最终回复纯 JSON，按子代理交接约定提供 role、round、status、artifacts、summary、open_questions，其中 artifacts 列出实际产物绝对路径，summary 是本次工作小结；主会话收到后将交接 JSON 保存到 /absolute/project/hypothese/round-01-proposer.handoff.json。",
   "output": false,
   "options": {
     "context": "fresh",
@@ -47,7 +47,7 @@
   "round": 1,
   "status": "completed",
   "artifacts": [
-    "/absolute/project/research/hypotheses/run-name/round-01-proposer.md"
+    "/absolute/project/hypothese/round-01-proposer.md"
   ],
   "summary": "围绕任务提出了三个机制不同的候选，分别整理证据位置、预期观察和最小区分实验；数据访问条件仍待确认，已列为可行性缺口。",
   "open_questions": [

@@ -11,10 +11,10 @@ description: 独立评审研究报告、论文或文献综述，核查主张与�
 
 ## 准备材料
 
-1. **自主发现材料。** 以当前 Pi 工作目录为研究项目根目录，用户明确给出其他工作目录时使用该目录。模型自行递归发现 Markdown（`.md`、`.markdown`）、JSON、相关 JSONL、PDF、LaTeX、图表和运行记录，按标题、内容与字段判断哪些有用，再读取相关内容；不要求用户指定输入文件，不预设任务、方法或结果文件名。包括被 Git 忽略的研究材料，通常跳过依赖、缓存和工具内部记录。旧评审只在复审时作为历史输入，不能预先引导首次独立判断。
+1. **自主发现材料。** 以当前 Pi 工作目录为研究项目根目录，用户明确给出其他工作目录时使用该目录。模型自行递归发现 Markdown（`.md`、`.markdown`）、JSON、相关 JSONL、PDF、LaTeX、图表和运行记录，按标题、内容与字段判断哪些有用，再读取相关内容；不要求用户指定输入文件，不预设任务、方法或结果文件名。包括被 Git 忽略的研究材料，通常跳过 `.git`、依赖、缓存和工具内部记录。旧评审只在复审时作为历史输入，不能预先引导首次独立判断。阶段目录只约束新产物，材料读取仍覆盖整个项目及旧目录、自定义目录，不限于 `review/` 或其他阶段目录；发现材料不能只依赖默认遵守 Git 忽略规则的文件列表。
 2. **按实际成果确定对象。** 发现与本次评审相关的 **`report.pdf`** 时必须实际读取全文；没有该文件时，直接根据已有 Markdown、JSON、LaTeX 或其他材料确定评审对象，按内容选择 `paper` 或 `literature` 标准。PDF 不存在不是缺陷或阻塞，不要求补生成 PDF，也不自动调用其他技能。结合内容、来源清单及可用构建记录确定本次版本，不能仅按修改时间挑选。有多个无法区分的版本时再澄清。已存在但损坏或无法读取的相关 PDF 应明确报告读取障碍，不能当作不存在或声称已完成其全文检查。
 3. **自主选择证据。** Reviewer 从工作目录继续发现并按需读取目标、假说、方法、结果、数据划分、指标、分析代码、原始运行/失败记录、引用原文和用户知识，不受主会话预列文件限制。相关 Markdown/JSON 按章节、字段和行号定位；大文件分批读取，记录阅读范围及未读部分。只看到摘要、路径或片段不算全文核验。作者回应属于待核验主张，不是原始证据。默认简体中文；方案或阶段报告按其自述目标评估，不要求所有成果都有自己的实验。
-4. **建立输出目录。** 用户指定目录优先，否则主会话在项目 `research/reviews/<run-name>/` 建新目录，避免覆盖历史。主产物固定叫 `review.md`；辅助文件为 `context.md`、`inputs.json`、`review.json` 和必要交接记录。技能文件与脚本路径相对于本技能目录解析，成果写到研究项目，不能写进已安装技能目录。
+4. **建立输出目录。** 用户明确指定输出位置时遵循该位置；否则主会话在项目根目录下创建 `review/`，本次成果目录默认即该目录。单会话与独立评审版本共用这一阶段目录。已有成果时，只有明确续写才更新原目录；独立新任务使用 `review/<run-name>/` 中未占用的目录，保留历史。相对输出路径以项目根目录为基准；技能参考和脚本以本技能安装目录为基准，成果不得写入安装目录。只读 Reviewer 不负责建目录，由主会话负责落盘。主产物固定叫 `review.md`；辅助文件为 `context.md`、`inputs.json`、`review.json` 和必要交接记录。
 5. **记录实际采用材料。** `context.md` 记录工作目录、本次目标、实际评审对象、读取方式、用户约束及输出位置；有相关 report.pdf 时一并记录。可附材料线索，但不是输入白名单。主会话可用下面的 `snapshot` 为实际主评审文件与本地证据记录路径和 SHA-256；这里的路径均由模型发现后填入，不是要求用户填写的输入表单。命令只记录传入文件，不替模型判断相关性，不代表已读或核验。Reviewer 在 coverage 中补充实际采用文件、读取范围与无法访问的证据；清单未登记的新增文件不在版本检查范围内。
 
 ```bash
@@ -36,7 +36,7 @@ Reviewer 返回完整 `review.json`：摘要、优势、逐项问题、作者问
 主会话等待真实完成结果，阅读完整 `review.json`，检查目标与输入版本、问题依据、评分及建议是否一致，再校验和生成主产物：
 
 ```bash
-python3 <skill-dir>/scripts/review_output.py render --review /absolute/project/research/reviews/run-name/review.json --manifest /absolute/project/research/reviews/run-name/inputs.json --output /absolute/project/research/reviews/run-name/review.md
+python3 <skill-dir>/scripts/review_output.py render --review /absolute/project/review/review.json --manifest /absolute/project/review/inputs.json --output /absolute/project/review/review.md
 ```
 
 脚本使用 Python 3.10+ 标准库，无模型/API 依赖。`--manifest` 会核对登记文件是否仍与本次输入一致；不提供清单时只能检查 JSON 协议。首次生成不会覆盖已有文件；确认是本次产物更新后才用 `--force`。结构错误由主会话修复序列化问题或让同一 Reviewer 补齐，最多一次补正；不替其改变科学判断。仍不完整时保留原始输出，交付缺项说明，不把启动回执或坏 JSON 称为完成评审。

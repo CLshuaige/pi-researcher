@@ -79,20 +79,24 @@ project/
 │   ├── evidence/T-.../attempt-1/       # 文献子任务成果
 │   ├── experiments/T-.../attempt-1/    # 实验子任务成果
 │   ├── reviews/T-.../attempt-1/        # 独立评审交接
-│   ├── notes/T-.../attempt-1/          # 其他子任务成果
-│   ├── hypotheses/                    # 主会话按需整理
-│   └── reports/                       # 主会话按需整理
+│   └── notes/T-.../attempt-1/          # 其他子任务成果
+├── hypothese/                        # 假说：hypothesis.md，拼写固定为 hypothese
+├── method/                           # 方法：method.md
+├── report/                           # 报告源码、证据索引与 report.pdf
+├── review/                           # 评审：review.md
 └── .research/
     ├── tasks/T-.../task.json           # 最新运行状态
     ├── tasks/T-.../attempt-1.json      # 每次执行的记录
     └── sessions/                      # Pi 原生 JSONL 会话
 ```
 
-初始化只创建目标、状态和必要运行目录。任务成果目录由运行器分配，避免并行任务写入同一位置。每次续接创建新的 attempt 目录，保留历史输出；续接的是相同会话。
+四个阶段的技能在使用时按需创建项目根目录下的 `hypothese/`、`method/`、`report/`、`review/`，单会话与多角色版本共用对应目录。明确续写时复用原目录；独立新任务写入对应阶段下未占用的 `<run-name>/` 子目录，保留历史。用户明确指定输出位置时遵循该位置。读取材料仍递归覆盖整个项目，包括旧目录、自定义目录和被 Git 忽略的相关材料，不要求迁移已有文件。
+
+初始化只创建目标、状态和必要运行目录。子任务成果目录由运行器分配，避免并行任务写入同一位置；子任务仍只写分配目录，主会话负责将成果整合到上述阶段目录，只读评审由主会话保存和渲染。每次续接创建新的 attempt 目录，保留历史输出；续接的是相同会话。
 
 `handoff.md` 是可阅读的结果摘要；`task.json` 保存状态、会话位置、目标版本摘要和使用量。`completed` 表示子任务提交了交接，不保证科研结论正确；主会话需按实际证据采纳。没有 `research_finish` 的普通结束只记为 `partial`。目标在执行期间变化时，结果也降为 `partial`，需要重新核对。
 
-建议版本管理 `research/` 中的方案、分析和报告，按项目情况忽略 `.research/`、大型数据、模型及缓存。不要把认证信息放进研究文件。
+建议版本管理四个阶段目录及 `research/` 中的目标、状态和证据，按项目情况忽略 `.research/`、大型数据、模型及缓存。不要把认证信息放进研究文件。
 
 ## 实验 engine
 
@@ -106,7 +110,7 @@ project/
 
 ## 报告编译环境
 
-`research-report` 默认生成中文 ICML2026 双栏报告，编译成功后交付唯一的报告 PDF：`paper/report.pdf`。Ubuntu / Debian 安装依赖：
+`research-report` 默认生成中文 ICML2026 双栏报告，编译成功后交付唯一的报告 PDF：`report/report.pdf`。Ubuntu / Debian 安装依赖：
 
 ```bash
 sudo apt-get update
@@ -127,10 +131,10 @@ kpsewhich texgyretermes-regular.otf
 完成报告写作后执行（`<package-dir>` 替换为本包实际路径）：
 
 ```bash
-python3 <package-dir>/skills/research-report/scripts/report_generation.py compile --output paper
+python3 <package-dir>/skills/research-report/scripts/report_generation.py compile --output report
 ```
 
-成功状态见 `paper/build-status.json`，错误日志见 `paper/build.log`。依赖需安装在 Pi 实际运行的机器或容器中。
+成功状态见 `report/build-status.json`，错误日志见 `report/build.log`。依赖需安装在 Pi 实际运行的机器或容器中。
 
 本机已使用无 sudo 的用户级 TeX Live，位于 `~/.local/share/pi-researcher/texlive`，命令入口在已加入 PATH 的 `~/.local/bin`，无需再执行上述安装命令。
 

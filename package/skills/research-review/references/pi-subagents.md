@@ -4,6 +4,8 @@
 
 ## pi-subagents 主路径
 
+示例使用项目根目录下的 `review/`；采用运行子目录或自定义输出位置时，将示例中所有成果路径统一替换为本次成果目录的真实绝对路径。
+
 1. 主会话确定工作目录、创建成果目录和简要 context，自行发现已有成果；有相关 report.pdf 时确认子会话能读取，若需 PDF 提取或页面预览，由主会话准备到本次成果目录。没有该文件时直接使用实际材料，不要求报告生成前置阶段。输入清单可选，不要求用户指定研究输入。只有 `subagents_enable` 可见时先调用 `subagents_enable({})`，在下一次模型请求使用 `subagent`。
 2. 按需用 `subagent({"action":"list","options":{"capabilities":true}})` 确认代理。默认内置 `delegate`，沿用模型，以 task 定义学术 Reviewer。内置 `reviewer` 的系统提示是代码审查格式，与本技能协议不同，不能仅凭同名就假定适用。项目覆盖 delegate 时先确认工具与提示是否兼容。
 3. 使用 `options.context: "fresh"`，不 fork 作者会话。delegate 不自动继承本技能和 PDF/检索扩展，所以给出技能参考、工作目录及必要 PDF 读取入口，让 Reviewer 自主发现辅助文件；不提供封闭输入列表。不要用顶层 chain/parallel/tasks 旧参数。
@@ -12,7 +14,7 @@
 {
   "agent": "delegate",
   "cwd": "/absolute/project",
-  "task": "你是独立学术 Reviewer，只完成本次评审，不启动其他代理。读取 /absolute/skill/research-review/references/reviewer.md、/absolute/skill/research-review/references/output.md 及 /absolute/project/research/reviews/run-name/context.md。在 /absolute/project 及子目录自行发现并判断可能有用的 Markdown、JSON 等材料；存在相关 report.pdf 时必须实际读取全文，PDF 读取方式和可用提取件见 context；不存在时直接评审已有材料，不要求生成 PDF 或执行前置阶段。不要局限于 context 已列路径。逐项核查决定结论的证据，记录实际读取文件和未核验范围，不运行实验、不改研究材料。将符合输出协议的完整 JSON 写入 /absolute/project/research/reviews/run-name/review.json，只允许写这个成果文件。完成后最终回复纯 JSON 交接 {status, summary, artifacts, open_questions}，artifacts 仅列真实写入的 review.json 绝对路径，summary 说明主要发现及局限；已存在的相关 report.pdf 全文无法读取时报告读取障碍，不自报完成全部评审。",
+  "task": "你是独立学术 Reviewer，只完成本次评审，不启动其他代理。读取 /absolute/skill/research-review/references/reviewer.md、/absolute/skill/research-review/references/output.md 及 /absolute/project/review/context.md。在 /absolute/project 及子目录自行发现并判断可能有用的 Markdown、JSON 等材料；存在相关 report.pdf 时必须实际读取全文，PDF 读取方式和可用提取件见 context；不存在时直接评审已有材料，不要求生成 PDF 或执行前置阶段。不要局限于 context 已列路径。逐项核查决定结论的证据，记录实际读取文件和未核验范围，不运行实验、不改研究材料。将符合输出协议的完整 JSON 写入 /absolute/project/review/review.json，只允许写这个成果文件。完成后最终回复纯 JSON 交接 {status, summary, artifacts, open_questions}，artifacts 仅列真实写入的 review.json 绝对路径，summary 说明主要发现及局限；已存在的相关 report.pdf 全文无法读取时报告读取障碍，不自报完成全部评审。",
   "output": false,
   "options": {"context": "fresh", "outputMode": "inline"}
 }

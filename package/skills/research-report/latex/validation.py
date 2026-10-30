@@ -37,13 +37,13 @@ def local_path(root: Path, value: str) -> Path:
         raise ValueError(f"Invalid local path: {value!r}")
     parts = PurePosixPath(value)
     if parts.is_absolute() or ".." in parts.parts or not parts.parts:
-        raise ValueError(f"Path must stay inside paper/: {value}")
+        raise ValueError(f"Path must stay inside the report output directory: {value}")
     if not re.fullmatch(r"[A-Za-z0-9_./-]+", value):
         raise ValueError(f"Use portable ASCII paths without spaces: {value}")
     root = root.resolve()
     path = (root / value).resolve()
     if not path.is_relative_to(root) or path == root:
-        raise ValueError(f"Path leaves paper/: {value}")
+        raise ValueError(f"Path leaves the report output directory: {value}")
     return path
 
 

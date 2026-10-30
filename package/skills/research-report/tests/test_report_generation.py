@@ -210,6 +210,39 @@ class ReportTests(unittest.TestCase):
         self.assertIn("本次使用简体中文", result.stdout)
         self.assertIn("中文流程测试", result.stdout)
 
+    def test_cli_defaults_to_project_report_directory(self):
+        script = SKILL / "scripts/report_generation.py"
+
+        def cli(*args, env=None):
+            result = subprocess.run(
+                [sys.executable, str(script), *args], cwd=self.root,
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            return json.loads(result.stdout)
+
+        output = self.root / "report"
+        self.assertEqual(cli("init")["manifest"], str(output / "report.json"))
+        manifest = report.read_json(output / "report.json")
+        manifest.update(title="阶段目录流程验证", abstract="仅验证产物位置，未开展科学实验。")
+        manifest["sections"] = manifest["sections"][:1]
+        (output / manifest["sections"][0]["file"]).write_text("仅验证生成流程。\n", encoding="utf-8")
+        (output / "report.json").write_bytes(report.json_bytes(manifest))
+        self.assertEqual(cli("render", "--manifest", str(output / "report.json"))["main_tex"],
+                         str(output / "main.tex"))
+        self.assertTrue(cli("check")["ok"])
+
+        executables = self.root / "bin"
+        executables.mkdir()
+        (executables / "xelatex").symlink_to(self.fake_compilers())
+        environment = {**os.environ, "PATH": str(executables) + os.pathsep + os.environ.get("PATH", "")}
+        status = cli("compile", env=environment)
+        self.assertEqual(status["report_pdf"], str(output / "report.pdf"))
+        self.assertTrue((output / "report.pdf").is_file())
+        self.assertTrue((output / "build-status.json").is_file())
+        self.assertTrue((output / "build.log").is_file())
+        self.assertFalse((self.root / "paper").exists())
+
     def test_relocated_skill_needs_no_original_project(self):
         self.save_manifest()
         installed = self.root / "installed-skill"

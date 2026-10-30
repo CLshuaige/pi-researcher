@@ -4,8 +4,10 @@
 
 ## 目录与字段
 
+默认在项目根目录创建 `report/`；`init`、`render`、`check`、`compile` 省略 `--output` 时均使用调用目录下的 `report/`，因此默认调用应在项目根目录执行。使用运行子目录、自定义目录或受限子任务分配目录时，必须显式传入本次成果目录的实际绝对路径，并同步替换下面清单路径；目录内容约定不变。
+
 ```text
-paper/
+report/
   context.json             Pi 整理的写作证据包
   outline.json             Pi 生成的提纲
   evidence.md              主张与原文/运行、图表数据的对应关系
@@ -26,7 +28,7 @@ paper/
   report.bbl               成功引用解析后的参考文献（可用时）
 ```
 
-可用 `init --output paper` 创建空骨架，默认中文、ICML2026、preprint。标题、摘要和正文留空并会阻止 `render`，不会自动生成虚构内容。已有目录不要重复 init。
+可用 `init --output report` 创建空骨架，默认中文、ICML2026、preprint。标题、摘要和正文留空并会阻止 `render`，不会自动生成虚构内容。已有目录不要重复 init。
 
 `report.json` 示例展示字段形状，不包含可当作真实研究结果的样例指标或参考文献：
 
@@ -70,7 +72,7 @@ paper/
 }
 ```
 
-`source` 可为真实绝对路径或 JSON 目录相对路径，输出 `path` 必须在 `figures/` 内。图片只接受 PDF/PNG/JPG/JPEG，不能把 SVG 改扩展名冒充支持格式。只拷贝目录里明确登记的实际图片，不扫描并收集任意实验图片。组装完成后导出清单的 `source` 改为本地 `path`，确保搬移 `paper/` 后仍能重组装和编译。证据目录中的外部原始数据路径只是追溯信息，不是编译依赖。
+`source` 可为真实绝对路径或 JSON 目录相对路径，输出 `path` 必须在 `figures/` 内。图片只接受 PDF/PNG/JPG/JPEG，不能把 SVG 改扩展名冒充支持格式。只拷贝目录里明确登记的实际图片，不扫描并收集任意实验图片。组装完成后导出清单的 `source` 改为本地 `path`，确保搬移 `report/` 后仍能重组装和编译。证据目录中的外部原始数据路径只是追溯信息，不是编译依赖。
 
 正文用精确输出路径：
 
@@ -89,9 +91,9 @@ paper/
 ## 调用与验证
 
 ```bash
-python3 <skill-dir>/scripts/report_generation.py render --manifest paper/report.json --output paper
-python3 <skill-dir>/scripts/report_generation.py check --output paper
-python3 <skill-dir>/scripts/report_generation.py compile --output paper --timeout 120
+python3 <skill-dir>/scripts/report_generation.py render --manifest report/report.json --output report
+python3 <skill-dir>/scripts/report_generation.py check --output report
+python3 <skill-dir>/scripts/report_generation.py compile --output report --timeout 120
 ```
 
 `render` 先检查所有输入及输出冲突，再写文件。已有同内容文件可重用；对改变的生成文件，先确认更新范围，再加 `--force`。有手工编辑的 main.tex 时应先检查或保留副本，避免丢失改动。`--force` 不绕过路径或内容校验。
@@ -100,7 +102,7 @@ python3 <skill-dir>/scripts/report_generation.py compile --output paper --timeou
 
 中文编译需要可用的 XeLaTeX（或 `--engine lualatex`）、BibTeX（有引用时）、ctex/xeCJK 或 LuaTeX 中文支持、Fandol 中文字体、TeX Gyre 西文字体与常用 LaTeX 包：amsmath、amssymb、amsthm、graphicx、booktabs、hyperref、natbib、times、xcolor、eso-pic、forloop、url、caption。中文预设在原 ICML 样式之后显式选择 TeX Gyre 的 OpenType 字体，避免传统 Times 设置在 Unicode 编码下丢失字体形状。简要安装与字体检查见 [README 报告编译环境](../../../README.md#报告编译环境)。脚本不联网安装，也不改变全局配置。
 
-`compile` 先做静态校验，再运行 XeLaTeX → BibTeX（有引用时）→ XeLaTeX 两遍；没有引用时运行 XeLaTeX 两遍。命令关闭 shell escape，每条有独立超时。临时构建目录与字体缓存都在 `paper/` 内，结束后清理；完整命令输出保存在 `build.log`，不清除诊断依据。工具错误、缺字体、未解析引用或缺字都返回非零与 `ok: false`，不能称为成功生成 PDF。Overfull/Underfull 会保留为警告，需检查版面。
+`compile` 先做静态校验，再运行 XeLaTeX → BibTeX（有引用时）→ XeLaTeX 两遍；没有引用时运行 XeLaTeX 两遍。命令关闭 shell escape，每条有独立超时。临时构建目录与字体缓存都在 `report/` 内，结束后清理；完整命令输出保存在 `build.log`，不清除诊断依据。工具错误、缺字体、未解析引用或缺字都返回非零与 `ok: false`，不能称为成功生成 PDF。Overfull/Underfull 会保留为警告，需检查版面。
 
 源文件仍为 `main.tex`，编译命令通过 `-jobname=report` 直接生成 `report.pdf` 及 `report.aux`、`report.log` 等文件，BibTeX 同样处理 `report` 作业。整个编译流程都不生成 `main.pdf`。诊断检查通过后，把临时构建目录中的 `report.pdf` 原样保存到输出目录，不再次转换、压缩或重排版；成功编译时会清理旧版本遗留的 `main.pdf`。`build-status.json` 的 `pdf` 和 `report_pdf` 都指向唯一的 `report.pdf`。
 

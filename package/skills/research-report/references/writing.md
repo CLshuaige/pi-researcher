@@ -2,7 +2,7 @@
 
 提示词按用户提供的 `prompts/paper_writing.py` 与 `templates.py` 中论文角色改写，实际文件为本技能的 [paper_writing.py](../prompts/paper_writing.py) 和 [templates.py](../prompts/templates.py)。保留提纲、摘要、关键词、逐节写作、引用核对与编译修复的步骤，移除 AutoGen 组聊、固定英文输出和 Perplexity 依赖。
 
-无需用户显式指定输入文件。Pi 先查看当前工作目录及相关子目录，自行筛选与研究主题有关的 Markdown、JSON 等文件，按内容与出处判断其用途，再追踪引用的文献、实验记录、指标与图表。文件名和目录结构不作为是否可用的硬条件；用户提供的路径只是可选线索，用户明确限定的范围与运行时访问边界仍须遵守。
+无需用户显式指定输入文件。Pi 先递归查看已确定的项目根目录及子目录，包括被 Git 忽略的研究材料与旧目录，自行筛选与研究主题有关的 Markdown、JSON 等文件，按内容与出处判断其用途，再追踪引用的文献、实验记录、指标与图表。文件名和目录结构不作为是否可用的硬条件；用户提供的路径只是可选线索，用户明确限定的范围与运行时访问边界仍须遵守。
 
 按需读取候选材料，不把依赖目录、无关文档和大型数据全部塞进上下文。注意区分真实实验与示例、不同运行或修订版本，以及报告草稿与原始证据；本次生成的摘要和正文不能反过来当成独立证据。信息缺失时先沿工作目录继续查找，关键缺口仍未解决再询问用户。
 
@@ -34,7 +34,8 @@ Pi 读取并判断原始材料后自行写入 `context.json`。它是写作证�
 按需调用以下命令生成阶段提示词，再由当前 Pi 会话执行其中的写作任务：
 
 ```bash
-python3 <skill-dir>/scripts/report_generation.py prompt --stage outline --context paper/context.json
+# 在项目根目录执行；其他输出位置使用本次 context.json 的实际绝对路径。
+python3 <skill-dir>/scripts/report_generation.py prompt --stage outline --context report/context.json
 ```
 
 支持阶段：
@@ -54,4 +55,4 @@ python3 <skill-dir>/scripts/report_generation.py prompt --stage outline --contex
 
 `outline.json` 保存规划结果；写作时将当前节的目标、主张、证据、依赖和图片填入 `context.section`。保存每节正文后，更新 `completed_sections` 的实际文件路径或相关内容，保持符号与结论一致。每节不包含自己的顶层 `\section`，由组装器统一提供；不输出 Markdown 围栏或原框架的 `<SECTION_TEXT>` 包装。
 
-`evidence.md` 至少把主要论断对应到来源与定位，建议列：主张、事实/推断/建议、原文或指标文件、页码/行号/运行编号、引用键、局限与核验状态。图表再关联输入数据、脚本与运行编号。它可以引用项目原文件，不必把整个实验复制进报告；`paper/` 内的所有 TeX 编译依赖则必须完整。
+`evidence.md` 至少把主要论断对应到来源与定位，建议列：主张、事实/推断/建议、原文或指标文件、页码/行号/运行编号、引用键、局限与核验状态。图表再关联输入数据、脚本与运行编号。它可以引用项目原文件，不必把整个实验复制进报告；`report/` 内的所有 TeX 编译依赖则必须完整。

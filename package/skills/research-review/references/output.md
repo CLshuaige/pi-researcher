@@ -11,7 +11,7 @@
   "schema_version": 1,
   "input_type": "paper",
   "target": {
-    "path": "/absolute/project/paper/report.pdf",
+    "path": "/absolute/project/report/report.pdf",
     "sha256": "从 inputs.json 复制目标文件的实际 SHA-256"
   },
   "coverage": {
@@ -69,12 +69,12 @@
 
 ## 本地命令
 
-从任意目录运行，将 `<skill-dir>` 替换为本 SKILL.md 的真实所在目录。无需 pip 依赖、全局配置或原框架源码。
+从任意目录运行，将 `<skill-dir>` 替换为本 SKILL.md 的真实所在目录。示例使用项目根目录下的 `review/`；运行子目录或自定义输出位置应统一替换为本次成果目录的真实绝对路径。无需 pip 依赖、全局配置或原框架源码。
 
 ```bash
 python3 <skill-dir>/scripts/review_output.py snapshot --target <本次主评审文件绝对路径> --input-type paper --output <本次成果目录>/inputs.json
-python3 <skill-dir>/scripts/review_output.py check --review /absolute/project/research/reviews/run-name/review.json --manifest /absolute/project/research/reviews/run-name/inputs.json
-python3 <skill-dir>/scripts/review_output.py render --review /absolute/project/research/reviews/run-name/review.json --manifest /absolute/project/research/reviews/run-name/inputs.json --output /absolute/project/research/reviews/run-name/review.md
+python3 <skill-dir>/scripts/review_output.py check --review /absolute/project/review/review.json --manifest /absolute/project/review/inputs.json
+python3 <skill-dir>/scripts/review_output.py render --review /absolute/project/review/review.json --manifest /absolute/project/review/inputs.json --output /absolute/project/review/review.md
 ```
 
 snapshot 中的路径由模型发现后填入，用户无需指定。可按需用可重复的 `--evidence` 登记已发现的辅助材料；不存在的材料不要传给 snapshot，在 context 和 coverage 中记录。清单登记绝对路径、字节数和 SHA-256，不复制正文、抓取 URL 或替模型选择证据。render/check 提供 `--manifest` 时会核对本次对象和所有登记文件的当前哈希，变更或丢失时返回非零；应重新明确输入后评审，不直接更新哈希让旧评语通过。未登记的文件与外部页面不在这个检查范围内。
