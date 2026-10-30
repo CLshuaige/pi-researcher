@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research module settings",
+  "description": "Non-secret per-project module settings.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for editor completion."
+    },
+    "interactionMode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "review"
+      ],
+      "default": "review",
+      "description": "auto: proceed with disclosed assumptions; review: ask for consequential decisions."
+    },
+    "literature": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "sources": {
+          "type": "array",
+          "uniqueItems": true,
+          "default": [
+            "arxiv",
+            "openalex",
+            "semantic_scholar",
+            "crossref",
+            "pubmed",
+            "dblp"
+          ],
+          "description": "Preferred sources for initial academic searches, not a whitelist. Other sources may supplement. Empty skips preferred-source batch searches; web reading and targeted lookup remain available.",
+          "items": {
+            "oneOf": [
+              {
+                "const": "arxiv",
+                "title": "arXiv",
+                "x-tool-value": "arxiv"
+              },
+              {
+                "const": "openalex",
+                "title": "OpenAlex",
+                "x-tool-value": "openalex"
+              },
+              {
+                "const": "semantic_scholar",
+                "title": "Semantic Scholar",
+                "x-tool-value": "semantic"
+              },
+              {
+                "const": "crossref",
+                "title": "Crossref",
+                "x-tool-value": "crossref"
+              },
+              {
+                "const": "pubmed",
+                "title": "PubMed",
+                "x-tool-value": "pubmed"
+              },
+              {
+                "const": "dblp",
+                "title": "DBLP Computer Science Bibliography",
+                "x-tool-value": "dblp"
+              }
+            ]
+          }
+        },
+        "writeReview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate literature-review.md in addition to the working literature.md."
+        }
+      }
+    }
+  }
+}

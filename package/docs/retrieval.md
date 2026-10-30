@@ -1,47 +1,67 @@
 # 检索接入
 
-本机已安装并固定：`pi-web-access@0.45.0`、`@duskmoon/pi-academic-search@0.1.1`、`pi-arxivist@0.1.7`。三包为外部依赖，researcher 分发包不捆绑它们的源码或缓存。
-
-## 安装到其他机器
+在宿主安装目录通过 Pi 局部安装固定版本插件：
 
 ```bash
+pi install npm:pi-ask-user@0.17.0
 pi install npm:pi-web-access@0.45.0
 pi install npm:@duskmoon/pi-academic-search@0.1.1
 pi install npm:pi-arxivist@0.1.7
 ```
 
-将 [全局研究配置示例](../examples/research-global.json) 合并到 Pi agent 目录的 `research.json`，将 [网页配置示例](../examples/web-search.json) 合并到同目录的 `web-search.json`。通常该目录为 `~/.pi/agent`；如果使用 `PI_CODING_AGENT_DIR`，以它为准。保留已有凭据和自定义设置。相对路径对应 Pi 的全局 npm 安装布局，其他安装位置需要调整。
+局部安装声明写入该目录 .pi/settings.json，插件位于 .pi/npm/node_modules/；个人安装使用 ~/.pi/agent/settings.json 和 ~/.pi/agent/npm/node_modules/。问答插件供交互会话使用，其余三包提供检索和全文工具；子会话需要实际加载所选工具的扩展。
 
-重启 Pi 后，在项目目录执行 `/research capabilities`。该命令只检查配置，不验证服务端凭据或联网。开始新研究子任务即可使用检索组合。旧任务保留原来的工具配置指纹；增加工具后应创建新任务并引用旧成果，不强行续接旧配置。
+## 子会话工具加载
 
-## 工具分工
+本包提供已注册的 research-literature 角色，默认后台运行，通过普通 Extension 发现加载宿主已安装的检索插件。父会话安装了插件，并不代表前台子会话自动具备它们；前台执行或需要精确选择扩展时，宿主可通过 subagents.agentOverrides 的 extensions 指定实际入口。tools 列出允许使用的工具名称，不负责加载实现。具体规则见 [配置说明](subagents.md#extension-与工具)。
 
-| 来源 | 普通子任务 | 纯评审子任务 |
+文献角色允许 web_search、fetch_content、get_search_content、academic_search、paper_lookup、paper_citations、download_pdf、fetch_arxiv，以及基本读写和 Bash 工具。宿主准备对应检索插件；显式配置扩展路径时解析为实际安装位置。主流程按 research-literature 名称调用该角色，缺少工具时如实报告。
+
+## 学术源和凭据
+
+六种优先来源为 `arxiv`（arXiv）、`openalex`（OpenAlex）、`semantic_scholar`（Semantic Scholar）、`crossref`（Crossref）、`pubmed`（PubMed）、`dblp`（DBLP Computer Science Bibliography）。项目配置使用完整标识 semantic_scholar，调用插件时映射到 semantic。`.pi/research-modules.json` 的 literature.sources 决定初始检索重点，不是白名单；可以通过跨源查找、摘要补全和网页补充相关研究。
+
+文献子会话调用实际加载的 Academic 插件：academic_search 做优先源联合检索，paper_lookup 按 DOI/ID 核验元数据与摘要，paper_citations 追踪引用，必要时 download_pdf。查找和补全可能访问未列为优先的来源，产物记录实际来源。只有用户另有明确的禁止或预算要求时才收窄，并确认工具确能限制其内部调用。
+
+### 后端填写 Key 的位置
+
+业务参数与插件凭据分开使用既有格式：
+
+| 内容 | 实际读取位置 | 谁读取 |
 |---|---|---|
-| pi-web-access | web_search、fetch_content、get_search_content | 相同 |
-| pi-academic-search | academic_search、paper_lookup、paper_citations、download_pdf | 前三项 |
-| pi-arxivist | fetch_arxiv | 不启用；读取已有全文文件 |
+| 交互模式、优先学术源、writeReview | 当前项目 .pi/research-modules.json | Skill 通过 check-settings.mjs 读取 |
+| 学术源 Key、可选联系邮箱 | PI_CODING_AGENT_DIR/academic-search.json | Academic 插件直接读取 |
 
-主会话加载三包全部已启用工具；独立子会话仍只加载全局/项目显式列出的扩展。加载扩展后运行器重新应用准确工具列表，防止第三方自动激活下载或其他工具。download_pdf 在普通子任务中必须使用当前 attempt 内的绝对 outputDir；缺省路径、共享目录和其他任务目录会被阻止。
+[academic-search.json](../config/academic-search.json) 是后端配置模板，只有当前六源中支持 Key 的三个原生字段。后端接收前端输入后，合并写入实际运行配置；包内模板不会自动生效，插件也不会读取 research-modules.json 中的 Key。null 表示没有配置，可尝试环境变量或该服务支持的无 Key 访问，不能据此保证所有源可用。
 
-网页配置使用 Exa → DuckDuckGo，无额外密钥时通过 Exa MCP 搜索。显式限制搜索后端、设置 `workflow: none`，关闭 curator、自动摘要、浏览器 cookie 及 GitHub 专用 clone 路径；正文只允许 readable/raw。需要其他后端时再修改 allowedProviders 与 searchRouting，并配置对应服务凭据。
+| 服务 | 插件 JSON 字段 | 环境变量 |
+|---|---|---|
+| Semantic Scholar | semanticScholarApiKey | S2_API_KEY |
+| OpenAlex | openAlexApiKey | OPENALEX_API_KEY |
+| PubMed / NCBI | ncbiApiKey | NCBI_API_KEY |
 
-学术扩展自己的配置默认在 `~/.pi/academic-search.json`（受 `PI_CODING_AGENT_DIR` / XDG 环境影响），不在 research.json。可以按需提供 Semantic Scholar、OpenAlex 等凭据；本机没有新增任何服务密钥。无密钥访问可能限流，不代表所有数据源随时可用。
+arXiv、Crossref、DBLP 在当前插件中没有专用 API Key 字段。可选联系信息为 crossrefMailto / CROSSREF_MAILTO、openAlexMailto / OPENALEX_MAILTO；需要 Unpaywall 开放 PDF 查找时可配置 unpaywallEmail / UNPAYWALL_EMAIL。Key 不一定是付费凭据，认证与配额按服务实际返回处理；本项目尚无有效学术 Key，未验证这些源的认证成功。
 
-## 代理网络
+后端应显式设置 PI_CODING_AGENT_DIR 为本用户/本次运行使用的 Pi agent 配置目录，在启动子 Pi 前写好 academic-search.json。未设置时，插件按 XDG_CONFIG_HOME/pi，再按 ~/.pi 查找；不能假定它与 Pi 默认 ~/.pi/agent 总是相同。后台原生子进程继承该变量；使用自定义 agent 目录时，应把需要的模型和认证配置也准备在那里。
 
-本机已有小写 `http_proxy` / `https_proxy`，curl 使用它们，但 Node fetch 原先没有启用代理。可选扩展 `extensions/env-proxy/index.ts` 使用 Node >=24.14 的标准 `http.setGlobalProxyFromEnv()` 接口，使 Node fetch/HTTP 遵守现有代理环境并保留 NO_PROXY，额外绕过本机回环地址。不会保存或输出代理凭据。
+已核对 0.1.1 的实际 credential-source.ts：普通字面量 JSON 值与对应环境变量同时存在时，非空环境变量优先。因此采用前端写 JSON 的模式时，不要让服务器遗留的全局学术 Key 环境变量覆盖当前用户输入；后端可在该 Pi 子进程环境中清除相应变量，或明确选择全部通过环境注入。模型 Key 的 BLSC_API_KEY / Pi auth.json 与这些学术 Key 独立。
 
-本机由 `~/.pi/agent/extensions/research-network/index.ts` 加载；其他机器按网络需要显式加载该入口。它影响整个 Pi 进程，包括父子会话，不在每个子任务中重复设置。没有 HTTP(S) 代理环境时不做任何事。更改代理环境或移除此入口后重启 Pi；不要依赖运行中 reload 撤销全局 dispatcher。
+插件还将以 $VAR / ${VAR} 开头的完整字符串解释为环境引用，以 ! 开头解释为命令来源。前端填写的是字面量 Key；若真的以 $ 或 ! 开头，后端按插件约定加前缀转义为 $$… / $!…，不要把前端输入作为命令来源。普通 Key 原样填写，不需要智能体手动读取或写进任务提示词。
 
-标准启动方式也可使用 `NODE_USE_ENV_PROXY=1 pi`，但扩展依赖可能初始化自己的 HTTP 层；应以实际工具请求验证为准。[Node 官方说明](https://nodejs.org/download/release/v24.17.0/docs/api/http.html#httpsetglobalproxyfromenvproxyenv)
+该版本 provider 会缓存配置与已解析凭据。后端更新 Key 后新建对应子 Pi，或重新启动已加载插件的 Pi，不假定文件变化会立即更新在途请求。配置文件建议使用 0600 权限，不把 Key 写入科研产物。
 
-## 证据和错误
+## 网页与全文
 
-网页 responseId 与学术 resultId 都是临时引用，不作为长期成果。保存实际文本、元数据、URL 和章节/页码到 attempt 目录。arxivist 的缓存也是读取材料，需复制必要成果；LaTeX 转 Markdown 不等于已经核对 PDF 图表或页码。
+网页模板使用 Exa → DuckDuckGo，`useCurrentModel:false`、`workflow:none`，关闭浏览器自动打开、cookie 和 GitHub clone。搜索后端独立于 Kimi 的原生联网功能；模型只需能调用工具。
 
-学术包的一些错误通过 `details.error` 或 `failedSources` 返回，paper_lookup 还可能把上游失败显示为 not_found。检查来源错误和健康状态；只返回部分来源时不要宣称完整覆盖。429 应等待或换用其他数据源，不能解释为无相关文献。此版本检索工具没有通用分页游标，不支持直接宣称穷尽式检索。
+论文优先读取 HTML，必要时用 `fetch_arxiv` 获取可读全文或按需下载 PDF。下载文件不等于读懂 PDF；扫描件、图表和公式依赖实际可用的提取或视觉能力。临时 resultId/responseId 不能代替长期 URL、DOI 和原文定位。
 
-## 维护
+默认保存稳定链接、DOI 和必要笔记。工具临时获取或提取 PDF 后，不自动把完整转写稿复制到项目。确需离线、保留版本或复现时，再把必要副本存入 `literature/papers/` 等子目录并记录理由，不批量下载所有检索结果。LaTeX/PDF 编译归报告模块接入。
 
-researcher 0.2.0 修复了模型桥接把子会话占位 Authorization header 传给父模型的问题。父 runtime 重新解析 API key、OAuth 和自定义 headers；不复制凭据到任务文件。升级三个外部包前检查工具名、manifest 入口、缓存、输出目录和取消行为，随后执行加载与少量公开检索验证。
+## 网络和失败
+
+代理环境由宿主进程提供。Node 原生 fetch 需要使用环境代理时，可设置 NODE_USE_ENV_PROXY=1；本服务器 Node 22.23.1 已实际验证。网络变化后重新启动进程，并分别核对模型与检索请求。
+
+401/403、429、超时、`details.error` 和 `failedSources` 均须作为来源失败处理，不能当零结果或完整覆盖。摘要、元数据、相关正文的阅读程度要如实记录。实际验证范围见 [验证说明](validation.md)。
+
+academic-search.json 的文件名和读取规则由 pi-academic-search 插件的 src/utils.ts 定义；不是 pi-web-access 的配置。pi-web-access 使用 web-search.json。两者都尊重 PI_CODING_AGENT_DIR。

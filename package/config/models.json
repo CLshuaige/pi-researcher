@@ -3,7 +3,7 @@
   "providers": {
     "blsc": {
       "name": "BLSC OpenAI-Compatible API",
-      "baseUrl": "https://llmapi.blsc.cn",
+      "baseUrl": "https://llmapi.blsc.cn/v1",
       "api": "openai-completions",
       "apiKey": "$BLSC_API_KEY",
       "authHeader": true,
@@ -12,7 +12,10 @@
           "id": "Kimi-K3",
           "name": "BLSC Kimi-K3",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 1048576,
           "maxTokens": 131072,
           "cost": {
@@ -20,6 +23,13 @@
             "output": 0,
             "cacheRead": 0,
             "cacheWrite": 0
+          },
+          "compat": {
+            "thinkingFormat": "deepseek",
+            "supportsReasoningEffort": false
+          },
+          "samplingParams": {
+            "temperature": 0.6
           }
         }
       ]

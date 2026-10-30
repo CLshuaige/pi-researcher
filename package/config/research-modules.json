@@ -1,0 +1,15 @@
+{
+  "$schema": "./research-modules.schema.json",
+  "interactionMode": "review",
+  "literature": {
+    "sources": [
+      "arxiv",
+      "openalex",
+      "semantic_scholar",
+      "crossref",
+      "pubmed",
+      "dblp"
+    ],
+    "writeReview": false
+  }
+}

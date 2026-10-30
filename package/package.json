@@ -6,7 +6,10 @@
   "license": "UNLICENSED",
   "keywords": ["pi-package", "research"],
   "engines": { "node": ">=22.19.0" },
-  "files": ["extensions", "skills", "docs", "examples", "README.md"],
+  "files": ["agents", "extensions", "skills", "docs", "examples", "config", "README.md"],
+  "pi-subagents": {
+    "agents": ["./agents"]
+  },
   "pi": {
     "extensions": ["./extensions/researcher/index.ts"],
     "skills": ["./skills"]
@@ -14,7 +17,8 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
+    "typebox": "*",
+    "pi-subagents": "0.84.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.4.0",
@@ -23,8 +27,8 @@
     "typescript": "~5.9.3"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "node ../.pi/dev/node_modules/typescript/bin/tsc --project tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs",
     "check": "npm run typecheck && npm test",
     "pack:check": "npm pack --dry-run"
   }
