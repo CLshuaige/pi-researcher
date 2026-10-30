@@ -40,6 +40,8 @@ description: 读取项目中相关 Markdown 和 JSON，通过规划、批评和�
 
 主会话控制顺序和计数，开始时设置 `debate_count = 0`。三个逻辑角色使用相同模型配置，通过角色任务区分；均可使用内置 `delegate`，无需新增同名自定义 agent。
 
+本技能由主会话逐次调度，每次 `subagent` 只启动当前一个角色，使用 `agent` 与 `task`。不传 `workflow`、`args` 或 `options.script`，也不以 `workflow: false` 关闭工作流；整个辩论流程不等于工具的 workflow 调用模式。管理查询另用 `action`，不与角色启动合并。参数互斥与校验报错的恢复见 [单角色调用边界](references/pi-subagents.md#单角色调用边界)。
+
 1. **Planner 规划或修订。** 阅读任务、完整假说与知识，设计能支持或否定假说的实验，说明基线、对照、测量、步骤、依赖和结果解释。先保证科学有效性，后续根据批评调整成本和范围。使用 [Planner 提示](references/roles.md#planner)。
 2. **Critic 评审。** 阅读本轮完整方案和已有讨论，检查步骤清晰度、工具和资源可得性、技术困难、失败风险及科学有效性，给出修改建议和结束标记。使用 [Critic 提示](references/roles.md#critic)。
 3. **主会话路由。** 收到 Critic 的交接小结并读取完整评审产物后，`debate_count += 1`。评审产物包含 `READY` 且不包含 `NEEDS_REVISION`，或达到轮数上限时，结束辩论；否则将批评交回 Planner，开始下一轮。以评审产物中的标记路由，不扫描交接小结。不按实验并行规划。

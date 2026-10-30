@@ -2,6 +2,19 @@
 
 本流程复用用户已配置的 `pi-subagents`，通过普通模型工具调用执行。以下按已安装的 0.84.0 接口编写；其他版本以实际 schema 和 `guide` 为准，无需修改扩展或全局 agent 配置。
 
+## 单角色调用边界
+
+本技能由主会话读取产物并决定下一角色，每次调用只启动一名子代理，使用下方的 `agent`、`task`、`cwd`、`output`、`options` 参数模板；需要显式控制异步时可另传 `async`。后续角色在当前角色完成并交接后再启动，不把整次辩论包装成工具 workflow。
+
+- 角色启动不得同时包含 `workflow`、`args` 或 `options.script`，也不使用旧字段 `workflowScript`、`workflowScriptPath`。直接省略这些字段，不传 `false`、`null` 或空对象作为替代。
+- `workflow: true` 属于回复代码块工作流；脚本路径和命名 workflow 也属于工作流模式，不能与顶层 `agent`、`task` 混用。`options.script` 同样会进入工作流路径，仅删除 `workflow` 而留下它仍会冲突。
+- 查询状态、帮助、代理列表时单独调用 `action`。启动角色时省略 `action`，不要发明 `action: "single"`。
+- 子代理交接 JSON 是最终回复内容，不是启动参数中的 `args`，也不要求配置 workflow 或脚本。
+
+若返回 `Structured single-child execution cannot be combined with workflow.`，这是启动前的参数互斥错误，该次调用未创建子代理，不增加辩论轮数。保留已有 context 和产物，向用户说明参数错误，从下方单角色模板重新构造参数，完整去除工作流字段后纠正重试一次；不要仅在失败参数上反复修改 `workflow` 的值。
+
+若已有 run id 或无法确认是否启动，先用该 ID 查询状态，避免重复启动。纠正后仍失败则停止并报告实际参数字段与错误，按扩展 guide 排查；其他运行或环境失败不套用上述重试，不自动切换 CLI、模型或执行模式。
+
 ## 确认能力
 
 用户或项目指令授权本流程后，若只看到 `subagents_enable`，先调用 `subagents_enable({})`，下一次模型请求再使用 `subagent`。启用工具不等于启动子任务。

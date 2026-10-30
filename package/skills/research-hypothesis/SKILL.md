@@ -37,6 +37,8 @@ description: 基于项目 Markdown 和 JSON 中的任务、文献与已有知识
 
 主会话控制顺序、计数和收尾，开始时设置 `debate_count = 0`。三个逻辑角色使用相同模型配置，差异来自角色任务；可直接使用内置 `delegate`，不必安装同名自定义 agent。
 
+本技能由主会话逐次调度，每次 `subagent` 只启动当前一个角色，使用 `agent` 与 `task`。不传 `workflow`、`args` 或 `options.script`，也不以 `workflow: false` 关闭工作流；整个辩论流程不等于工具的 workflow 调用模式。管理查询另用 `action`，不与角色启动合并。参数互斥与校验报错的恢复见 [单角色调用边界](references/pi-subagents.md#单角色调用边界)。
+
 1. **Proposer 提出或修订。** 第一轮默认给出 2–3 个方向或风险特征不同的候选；本次请求或任务需要另有数量要求时沿用。说明文献依据、科学价值与实现组成。后续轮次读取全部已有讨论，回应批评、修改候选。使用 [Proposer 提示](references/roles.md#proposer)。
 2. **Critic 评审。** 收到本轮完整提案及已有讨论，检查科学价值、时间、算力、数据、技术难点、失败风险和最低成本验证方案，输出批评与结束标记。使用 [Critic 提示](references/roles.md#critic)。
 3. **主会话路由。** 收到 Critic 的交接小结并读取完整评审产物后，`debate_count += 1`。评审产物包含 `READY` 且不包含 `NEEDS_REVISION`，或计数达到轮数上限时，结束辩论；否则将反馈交回 Proposer，进入下一轮。以评审产物中的标记路由，不扫描交接小结。不要按候选并行开评审，也不把 READY 解释成某个候选的独立批准。
