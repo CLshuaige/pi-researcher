@@ -1,0 +1,240 @@
+.sub-session-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.sub-session-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.sub-session-status.running {
+  background: var(--panel-soft);
+  color: var(--ink);
+}
+
+.sub-session-status.completed {
+  background: #dcfce7;
+  color: var(--green);
+}
+
+.sub-session-status.failed {
+  background: #fee2e2;
+  color: var(--red);
+}
+
+.sub-session-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sub-session {
+  border: 1px solid var(--line);
+  background: var(--panel, white);
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 10px 0 10px 34px;
+}
+.sub-session-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 15px;
+  text-align: left;
+}
+.sub-session-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sub-session-chevron {
+  color: var(--muted);
+  transition: rotate 160ms;
+  flex-shrink: 0;
+}
+.sub-session-header[data-state='closed'] .sub-session-chevron {
+  rotate: -90deg;
+}
+.sub-session-body {
+  padding: 0 15px 10px;
+}
+.sub-session-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.sub-session-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sub-session-objective {
+  margin: 10px 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.sub-session-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--panel-soft);
+  margin-top: 12px;
+}
+.sub-session-tabs button {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sub-session-tabs button[data-state='active'] {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: var(--surface-shadow);
+}
+.sub-session-pane {
+  padding-top: 10px;
+  outline: none;
+}
+.sub-session-live {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 150px;
+  overflow: auto;
+}
+.child-pulse {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--cobalt);
+  animation: child-breathe 1.4s ease-in-out infinite;
+}
+@keyframes child-breathe {
+  50% {
+    opacity: 0.4;
+    scale: 0.7;
+  }
+}
+.child-timeline {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.child-timeline li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 0;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.child-event-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.child-timeline [data-status='completed'] .child-event-dot {
+  background: var(--green);
+}
+.child-timeline [data-status='running'] .child-event-dot {
+  background: var(--cobalt);
+}
+.child-timeline [data-status='failed'] .child-event-dot {
+  background: var(--red);
+}
+.child-log {
+  max-height: 400px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.child-tool {
+  border-left: 2px solid var(--line);
+  margin: 6px 0;
+  padding-left: 10px;
+}
+.child-tool pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+  font: 11px/1.6 var(--font-mono);
+}
+.child-answer {
+  padding: 6px 0;
+}
+.sub-session-summary .markdown,
+.child-answer .markdown {
+  font-size: 13px;
+}
+.child-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px;
+  border-radius: 7px;
+}
+.child-file:hover {
+  background: var(--hover);
+}
+.child-file span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.child-file small {
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .child-pulse {
+    animation: none;
+  }
+}
+@media (max-width: 640px) {
+  .sub-session {
+    margin-left: 0;
+  }
+  .research-status-trigger span {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.sub-session-meta {
+  font-variant-numeric: tabular-nums;
+}

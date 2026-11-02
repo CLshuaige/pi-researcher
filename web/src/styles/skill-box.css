@@ -1,0 +1,268 @@
+/* Floating skill box (desktop pet) — only mounted on the empty home page */
+.skill-box {
+  position: fixed;
+  z-index: 46;
+  width: 180px;
+  height: 180px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.skill-box-button {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  filter: drop-shadow(0 12px 26px rgba(23, 105, 255, 0.22));
+  animation: skill-box-bob 3.4s ease-in-out infinite;
+  transition:
+    transform var(--motion-fast),
+    filter var(--motion-fast);
+}
+.skill-box-button:hover {
+  filter: drop-shadow(0 16px 30px rgba(23, 105, 255, 0.3));
+  transform: translateY(-2px) scale(1.04);
+}
+.skill-box[data-dragging='true'] .skill-box-button {
+  cursor: grabbing;
+  animation-play-state: paused;
+  transform: scale(1.06);
+  filter: drop-shadow(0 20px 34px rgba(23, 105, 255, 0.34));
+}
+.skill-box-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.skill-box-img.open {
+  opacity: 0;
+  transform: scale(0.72) translateY(6px);
+}
+.skill-box[data-open='true'] .skill-box-img.closed {
+  opacity: 0;
+  transform: scale(0.72) translateY(-6px);
+}
+/* The open-box artwork is visually smaller, so render it a touch larger */
+.skill-box-img.open {
+  scale: 1.09;
+}
+.skill-box[data-open='true'] .skill-box-img.open {
+  opacity: 1;
+  transform: scale(1);
+}
+@keyframes skill-box-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -7px;
+  }
+}
+/* Skill chips column popping out of the box */
+.skill-panel {
+  position: absolute;
+  bottom: 194px;
+  left: 0;
+  width: 212px;
+  padding: 12px;
+  border: 1px solid #dbe6f8;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 18px 44px rgba(21, 34, 66, 0.16),
+    0 2px 8px rgba(21, 34, 66, 0.06);
+  opacity: 0;
+  transform: translateY(14px) scale(0.92);
+  transform-origin: bottom left;
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.skill-panel.left {
+  left: auto;
+  right: 0;
+  transform-origin: bottom right;
+}
+.skill-panel.below {
+  bottom: auto;
+  top: 194px;
+  transform: translateY(-14px) scale(0.92);
+  transform-origin: top left;
+}
+.skill-panel.below.left {
+  transform-origin: top right;
+}
+.skill-box[data-open='true'] .skill-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+/* Little ribbon banner with folded ends */
+.skill-panel-banner {
+  position: relative;
+  margin: 2px -18px 12px;
+  padding: 7px 0 8px;
+  background:
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.09) 0 6px, transparent 6px 12px),
+    linear-gradient(135deg, #3a86ff 0%, var(--cobalt) 55%, var(--cobalt-deep) 100%);
+  border-radius: 3px;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  text-align: center;
+  box-shadow: 0 4px 10px rgba(23, 105, 255, 0.32);
+}
+.skill-panel-banner::before,
+.skill-panel-banner::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  width: 10px;
+  height: 5px;
+  background: #0b3fa8;
+  z-index: -1;
+}
+.skill-panel-banner::before {
+  left: 0;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.skill-panel-banner::after {
+  right: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.skill-card {
+  position: relative;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    transform var(--motion-fast);
+}
+.skill-box[data-open='true'] .skill-card {
+  animation: skill-card-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--i) * 50ms + 60ms);
+}
+.skill-card:hover {
+  background: var(--cobalt-paler);
+  border-color: #dbe6f8;
+}
+.skill-card.active {
+  background: var(--cobalt-pale);
+  border-color: #b9d0f6;
+}
+.skill-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.skill-card.active .skill-label {
+  color: var(--cobalt);
+  font-weight: 600;
+}
+/* Little blue stars bursting when a card is lit */
+.star-burst {
+  position: absolute;
+  pointer-events: none;
+}
+.star-burst.label {
+  left: 12px;
+  top: 50%;
+}
+.star-burst.corner {
+  right: 6px;
+  top: 4px;
+}
+.star-burst i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--sz);
+  height: var(--sz);
+  background: #4d9fff;
+  clip-path: polygon(
+    50% 0%,
+    61% 35%,
+    98% 35%,
+    68% 57%,
+    79% 91%,
+    50% 70%,
+    21% 91%,
+    32% 57%,
+    2% 35%,
+    39% 35%
+  );
+  animation: star-pop var(--dur) ease-out forwards;
+}
+@keyframes star-pop {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.4) rotate(0deg);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx), var(--ty)) scale(1.1) rotate(140deg);
+  }
+}
+@keyframes skill-card-pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (max-width: 700px) {
+  .skill-box,
+  .skill-box-button {
+    width: 140px;
+    height: 140px;
+  }
+  .skill-panel {
+    width: 188px;
+    bottom: 152px;
+  }
+  .skill-panel.below {
+    top: 152px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skill-box-button {
+    animation: none;
+  }
+  .skill-box[data-open='true'] .skill-card {
+    animation: none;
+  }
+}

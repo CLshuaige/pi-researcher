@@ -1,0 +1,80 @@
+:root {
+  --background: #ffffff;
+  --panel: #ffffff;
+  --primary: #18181b;
+  --primary-hover: #303036;
+  --primary-foreground: #fafafa;
+  --surface-shadow: 0 1px 2px #00000005;
+  --popover-shadow: 0 4px 8px -2px #00000008, 0 12px 32px -4px #00000014;
+  --cobalt: #2563eb;
+  --cobalt-deep: #1d4ed8;
+  --cobalt-pale: #eff6ff;
+  --cobalt-paler: #f8faff;
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --muted: #71717a;
+  --muted-2: #a1a1aa;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --sidebar-bg: #fafafa;
+  --panel-soft: #f4f4f5;
+  --hover: #f4f4f5;
+  --green: #16a34a;
+  --red: #dc2626;
+  --radius: 10px;
+  --radius-composer: 20px;
+  --header-h: 64px;
+  --sidebar-w: 256px;
+  --inspector-w: 374px;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans CJK SC', 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --motion-fast: 150ms;
+  --motion-panel: 220ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root[data-theme='dark'] {
+  --background: #111113;
+  --panel: #18181b;
+  --primary: #fafafa;
+  --primary-hover: #e4e4e7;
+  --primary-foreground: #18181b;
+  --surface-shadow: 0 1px 2px #00000020;
+  --popover-shadow: 0 8px 32px #00000040;
+  --ink: #fafafa;
+  --ink-2: #d4d4d8;
+  --muted: #a1a1aa;
+  --muted-2: #71717a;
+  --line: #303036;
+  --line-strong: #3f3f46;
+  --sidebar-bg: #141416;
+  --panel-soft: #202023;
+  --hover: #27272a;
+  --cobalt-pale: #172554;
+}
+:root[data-theme='dark'] .app-shell,
+:root[data-theme='dark'] .conversation,
+:root[data-theme='dark'] .topbar,
+:root[data-theme='dark'] .inspector,
+:root[data-theme='dark'] .preview-panel,
+:root[data-theme='dark'] .settings-dialog,
+:root[data-theme='dark'] .composer-area,
+:root[data-theme='dark'] .composer-container,
+:root[data-theme='dark'] .user-menu {
+  background: var(--background);
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] .settings-form input,
+:root[data-theme='dark'] .settings-form select,
+:root[data-theme='dark'] .cm-editor,
+:root[data-theme='dark'] .cm-gutters {
+  background: var(--panel-soft);
+  color: var(--ink);
+}

@@ -4,7 +4,7 @@
 
 ```json
 {
-  "interactionMode": "review",
+  "interactionMode": "auto",
   "literature": {
     "sources": ["arxiv", "openalex", "semantic_scholar", "crossref", "pubmed", "dblp"],
     "writeReview": false
@@ -31,3 +31,5 @@ API Key 由运行进程环境或宿主凭据服务提供。工作区配置和交
 用户可以自定义或明确选择跳过并采用已说明的默认值。review 模式等待关键决定的回答，不能因为用户没有回应就宣称将自动采用某选项。无 UI 时用普通对话展示选项。子会话需要用户决定时向主会话交接，不虚构用户点击或回答。
 
 运行 `scripts/check-settings.mjs --describe` 查看完整参数、可选值和默认值。定义来自同包的 `config/research-modules.schema.json`。
+
+网页可配置 `hypothesis.max_debate_iterations` 和 `method.max_debate_iterations`，分别用于多角色假设生成和方法设计，默认 5，范围 1–20。`check-settings.mjs` 负责校验并返回它们，对应 Skill 在开始讨论前读取；用户本次明确指定的轮数优先。单会话技能不进行讨论循环，因此不使用这些字段。文献检索当前按问题调整关键词与检索范围，没有固定的关键词组数或轮数配置。

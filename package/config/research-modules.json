@@ -1,6 +1,6 @@
 {
   "$schema": "./research-modules.schema.json",
-  "interactionMode": "review",
+  "interactionMode": "auto",
   "literature": {
     "sources": [
       "arxiv",
@@ -11,5 +11,11 @@
       "dblp"
     ],
     "writeReview": false
+  },
+  "hypothesis": {
+    "max_debate_iterations": 5
+  },
+  "method": {
+    "max_debate_iterations": 5
   }
 }

@@ -15,7 +15,7 @@
         "auto",
         "review"
       ],
-      "default": "review",
+      "default": "auto",
       "description": "auto: proceed with disclosed assumptions; review: ask for consequential decisions."
     },
     "literature": {
@@ -74,6 +74,34 @@
           "type": "boolean",
           "default": false,
           "description": "Generate literature-review.md in addition to the working literature.md."
+        }
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "max_debate_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "description": "Maximum proposer/planner and critic discussion rounds; excludes final formatting."
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "max_debate_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "description": "Maximum proposer/planner and critic discussion rounds; excludes final formatting."
         }
       }
     }

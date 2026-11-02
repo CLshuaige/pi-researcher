@@ -4,11 +4,26 @@
   "description": "A TUI-first research workspace with seven skills and bounded, resumable Pi child sessions",
   "type": "module",
   "license": "UNLICENSED",
-  "keywords": ["pi-package", "research"],
-  "engines": { "node": ">=22.19.0" },
-  "files": ["agents", "extensions", "skills", "docs", "examples", "config", "README.md"],
+  "keywords": [
+    "pi-package",
+    "research"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "agents",
+    "extensions",
+    "skills",
+    "docs",
+    "examples",
+    "config",
+    "README.md"
+  ],
   "pi-subagents": {
-    "agents": ["./agents"]
+    "agents": [
+      "./agents"
+    ]
   },
   "pi": {
     "extensions": [
@@ -21,18 +36,19 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*",
-    "pi-subagents": "0.84.0"
+    "pi-subagents": "0.84.0",
+    "typebox": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
     "typebox": "1.3.27",
     "typescript": "~5.9.3"
   },
   "scripts": {
-    "typecheck": "node ../.pi/dev/node_modules/typescript/bin/tsc --project tsconfig.json --noEmit",
-    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "tsx --test tests/*.test.mjs tests/*.test.ts",
     "check": "npm run typecheck && npm test",
     "pack:check": "npm pack --dry-run",
     "test:tui": "python3 tests/tui-smoke.py"

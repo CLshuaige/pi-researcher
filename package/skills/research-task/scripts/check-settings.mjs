@@ -33,7 +33,15 @@ export function getSettings(root) {
   if (new Set(sources).size !== sources.length) throw new Error('literature.sources has duplicates');
   const writeReview = lit.writeReview === undefined ? spec.literature.properties.writeReview.default : lit.writeReview;
   if (typeof writeReview !== 'boolean') throw new Error('literature.writeReview must be boolean');
-  return { source: existsSync(file) ? '.pi/research-modules.json' : 'defaults', interactionMode, literature: { sources, writeReview } };
+  const discussion = {};
+  for (const stage of ['hypothesis', 'method']) {
+    const settings = input[stage] ?? {};
+    if (!isObject(settings) || Object.keys(settings).some(key => key !== 'max_debate_iterations')) throw new Error(stage + ' settings are invalid');
+    const count = settings.max_debate_iterations ?? 5;
+    if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error(stage + '.max_debate_iterations must be an integer from 1 to 20');
+    discussion[stage] = { max_debate_iterations: count };
+  }
+  return { source: existsSync(file) ? '.pi/research-modules.json' : 'defaults', interactionMode, literature: { sources, writeReview }, ...discussion };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

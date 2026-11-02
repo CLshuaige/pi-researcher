@@ -13,9 +13,17 @@ description: 读取 method.md、探测实际环境并执行或复现科研实验
 
 使用明确提供的有效模块配置；没有时先运行同包 research-task 的 `scripts/check-settings.mjs`，读取校验结果，不直接按未经校验的配置执行。auto 模式继续不依赖缺失条件的工作；review 模式遇到改变目标的选择时提供选项或交接待决问题。
 
-以当前研究项目为文件操作边界，科研产物只写入 `experiment/` 和 `result.md`。可读取本项目输入、Skill 自带资源和用户明确授权的外部数据；不遍历其他 Workspace 寻找替代数据，不改写其他阶段产物、用户级配置、凭据或服务器设置。依赖与缓存优先放在项目内。只管理本任务启动的进程；不停止其他作业、不重置 GPU、不自行扩大运行环境规定的设备范围。
+以当前研究项目为文件操作边界，科研产物只写入 `experiment/` 和 `result.md`。实验实现代码统一放在 `experiment/<project>/src/`，不在 Workspace 根目录或 `experiment/` 的同级目录散放代码。可读取本项目输入、Skill 自带资源和用户明确授权的外部数据；不遍历其他 Workspace 寻找替代数据，不改写其他阶段产物、用户级配置、凭据或服务器设置。依赖与缓存优先放在项目内。只管理本任务启动的进程；不停止其他作业、不重置 GPU、不自行扩大运行环境规定的设备范围。
 
 遵守实际工具和 OS 权限，权限不足时如实报告。硬件探测被拒绝只代表当前进程不可访问，不能推断服务器没有该硬件。`gpuVisibility` 提供环境声明的框架设备范围，按此范围规划；普通执行不提供跨工作区的系统级隔离。
+
+## Python 实验环境
+
+每个实验项目使用当前 Workspace 内自己的 `.venv`，不使用 Conda、Mamba，不借用其他 Workspace 或宿主 shell 已激活的环境。通常放在 `experiment/<project>/.venv/`；同一项目的多次运行可以复用其环境，不同实验项目单独配置。
+
+先从 Workspace 根目录运行本 Skill 的 `scripts/prepare-venv.mjs --project experiment/<project>`；脚本使用清理过继承环境的基础 Python，创建项目内 `.venv` 并确保其中的 pip 可用，宿主缺少 ensurepip 时使用 pip 官方引导脚本，只向该 `.venv` 安装。需要联网引导而网络不可用时明确报告失败。随后显式使用 `experiment/<project>/.venv/bin/python -m pip` 安装项目依赖，并用该解释器运行全部实验。不要直接调用裸 `pip`，不要在全局环境安装包，也不要使用其他项目的 `.venv/bin/python`。若缺少 venv 模块、引导失败或缺少所需 Python 版本，报告具体缺口，不回退到其他项目或 Conda。
+
+每个实验项目将 `requirements.txt` 或锁文件放在 `experiment/<project>/`；项目数据可放在 `experiment/<project>/data/`，也可以读取任务解析或用户已明确指定的 Workspace 根目录 `data/`，不为统一目录而移动已有数据。每个实验项目记录，以及 Python、框架、CUDA 等实际版本。安装前按实际可见设备选择兼容版本；先做该 `.venv` 内的最小真实导入/计算检查，再启动实验。产物中记录解释器与环境路径，`.venv` 本身不作为科研产物交付或提交。
 
 ## 执行
 
@@ -23,7 +31,7 @@ description: 读取 method.md、探测实际环境并执行或复现科研实验
 2. 运行同包 research-task 的 `scripts/probe-environment.mjs`，在当前实验进程内重新读取负载、空闲显存、内存与可见额度；任务解析时的快照只供参考。按方法选择足够的设备、并行度和实验规模，不默认使用全部 GPU 或逻辑核。先做小规模真实框架/数据检查，昂贵阶段前或资源不足时再检查。见 [资源判断与共享运行](../research-task/references/resources.md) 和 [环境与诚信](references/environment-and-integrity.md)。
 3. 使用真实可访问的数据。只检查明确提供或授权的数据路径，缺失时报告缺失，不遍历邻近项目寻找替代数据。可以在原目标允许的范围完成准备或小规模真实验证，清楚说明核心实验未执行。
 4. 实现、运行并逐步检查异常。每次执行使用新的北京时间戳运行目录：`experiment/runs/YYYYMMDD_HHmmss_SSS/`（UTC+8，含毫秒），从实际时间生成，不用序号命名。重跑保留旧原始数据、日志与失败产物。调整实现细节可以自主进行；改变科学问题、数据集、主指标或数据性质时披露原因，并按交互模式处理。
-5. 将代码、数据处理结果、日志、图表与原始测量放入 `experiment/`。可用 `scripts/run-capture.mjs` 捕获真实命令、时间、退出码和输出；省略 `--output` 时自动生成本次北京时间戳运行目录，执行后读取返回的 `run` 路径。也可引用现有调度器的作业记录。用法见 [运行与恢复](references/exec-and-resume.md)。
+5. 代码放在 `experiment/<project>/src/`，依赖清单放在项目目录，日志、图表与原始测量放入项目或运行目录。已有 Workspace 根目录 `data/` 可作为只读输入，其他阶段已声明的数据路径保持原样。可用 `scripts/run-capture.mjs` 捕获真实命令、时间、退出码和输出；省略 `--output` 时自动生成本次北京时间戳运行目录，执行后读取返回的 `run` 路径。也可引用现有调度器的作业记录。用法见 [运行与恢复](references/exec-and-resume.md)。
 6. 复核结果来源，检查适用的数据泄漏、对照公平性、随机性和统计问题。必要时独立重算指标。`scripts/verify-run.mjs` 只检查记录与进程终态，不证明科研结论正确。
 7. 写入 `result.md`：说明实际执行、数据来源与性质、实际环境、结果、证据路径、失败（包括已修复的失败）、未执行部分和局限。未测得的指标写“未测得”。
 

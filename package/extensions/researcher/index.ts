@@ -38,7 +38,7 @@ export default function researcherExtension(pi: ExtensionAPI) {
       moduleId: Type.String(),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
-      if (!controller.active || !controller.store) throw new Error("Activate /researcher first");
+      if (!controller.active || !controller.store) throw new Error("Activate /research first");
       const checklist = controller.store.read();
       const module = checklist?.modules.find(m => m.id === params.moduleId);
       if (!checklist || !module) throw new Error("Unknown checklist module");
@@ -75,7 +75,7 @@ export default function researcherExtension(pi: ExtensionAPI) {
       const [command, ...rest] = args.trim().split(/\s+/);
       const value = rest.join(" ");
       try {
-        if (command === "help") { ctx.ui.notify("/researcher <instruction> · resume · pause · stop · status · capabilities · inspect <task-id>\n轻量任务留在主会话；按需委派。实验自动加载内置 engine。", "info"); return; }
+        if (command === "help") { ctx.ui.notify("/research <instruction> | resume | pause | stop | status | capabilities | inspect <task-id>\n轻量任务留在主会话；按需委派。实验自动加载内置 engine。", "info"); return; }
         if (command === "capabilities") { ctx.ui.notify(JSON.stringify(capabilities(ctx), null, 2), "info"); return; }
         if (command === "status") {
           const checklist = new ChecklistStore(ctx.cwd);
@@ -84,7 +84,7 @@ export default function researcherExtension(pi: ExtensionAPI) {
           const jobs = store.jobs();
           const lines = tasks.slice(0, 10).map((t) => `${t.id} ${t.status} ${t.objective.slice(0, 60)}`);
           lines.push(...jobs.slice(0, 10).map(j => `${j.id} ${j.status} module=${j.moduleId}`));
-          ctx.ui.setWidget("research", [store.initialized() ? "研究工作区：research/BRIEF.md · research/STATE.md" : "尚未初始化", ...lines]);
+          ctx.ui.setWidget("research", [store.initialized() ? "研究工作区：research/BRIEF.md, research/STATE.md" : "尚未初始化", ...lines]);
           ctx.ui.notify(lines.join("\n") || "暂无研究子任务", "info"); return;
         }
         if (command === "inspect") {
