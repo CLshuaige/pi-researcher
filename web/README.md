@@ -9,7 +9,7 @@ node scripts/setup.mjs
 npm --prefix web run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the UI and proxies `/api` to port 3001. The development launcher starts and shuts down both processes.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite serves the UI and proxies `/api` to port 3001. The development launcher starts and shuts down both processes.
 
 ## Build
 
@@ -18,7 +18,7 @@ npm --prefix web run build
 npm --prefix web start
 ```
 
-Open <http://127.0.0.1:3001>. One server now serves both the built UI and API.
+Open [http://127.0.0.1:3001](http://127.0.0.1:3001). One server now serves both the built UI and API.
 
 ## Layout
 

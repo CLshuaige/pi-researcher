@@ -29,12 +29,23 @@ export class SessionStore {
         if (session.status === 'running' || session.status === 'stopping') {
           session.status = 'interrupted';
           session.notice = '上次运行已中断，可以发送消息继续研究。';
-          for (const m of session.messages) if (m.status === 'running') m.status = 'cancelled';
+          for (const m of session.messages) {
+            if (m.status === 'running') m.status = 'cancelled';
+            if (m.thinkingStatus === 'running') m.thinkingStatus = 'cancelled';
+          }
         }
         if (/^This operation was aborted$/i.test(session.error || '')) {
           delete session.error;
           session.notice = '研究已暂停，可发送消息继续。';
         }
+        for (const m of session.messages)
+          if (m.thinkingStatus === 'running')
+            m.thinkingStatus =
+              m.status === 'failed'
+                ? 'failed'
+                : m.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'completed';
         this.sessions.set(session.id, session);
       } catch {
         console.warn(`跳过损坏的会话文件：${name}`);

@@ -71,6 +71,56 @@ test('tool errors return exact recovery revision and help; status updates cannot
   } finally { await h.cleanup(); }
 });
 
+test('resolve errors expose exact pending IDs and corrected arguments without mutating state', async () => {
+  const h = harness(); try {
+    h.controller.instruction('Original request');
+    const initialized = await h.call({ action: 'init', objective: 'Goal' });
+    const instructionId = initialized.details.pendingInstructions[0].id;
+    const before = h.store.read()!;
+    const malformed = await h.call({ action: 'resolve', reason: 123, objective: 456 });
+    assert.equal(malformed.details.recovery.nextAction, 'read');
+    assert.deepEqual(malformed.details.recovery.resolveRequirements.retryArguments, {
+      action: 'resolve', expectedRevision: before.revision, instructionId,
+    });
+    for (const input of [{ status: 'pending' }, { instructionId: 'I-...' }]) {
+      const failed = await h.call({ action: 'resolve', reason: 'Handled original request', ...input });
+      assert.equal(failed.isError, true);
+      assert.match(failed.details.error, /instructionId/);
+      assert.deepEqual(h.store.read(), before);
+      const requirements = failed.details.recovery.resolveRequirements;
+      assert.deepEqual(requirements.pendingInstructions, [{ id: instructionId, text: 'Original request' }]);
+      assert.deepEqual(requirements.retryArguments, {
+        action: 'resolve', expectedRevision: before.revision, instructionId, reason: 'Handled original request',
+      });
+      assert.ok(requirements.requiredFields.includes('instructionId'));
+    }
+    const failed = await h.call({ action: 'resolve', instructionId, expectedRevision: 1 });
+    assert.match(failed.details.error, /Revision conflict/);
+    const resolved = await h.call(failed.details.recovery.resolveRequirements.retryArguments);
+    assert.equal(resolved.isError, undefined);
+    assert.deepEqual(resolved.details.pendingInstructions, []);
+    const noPending = await h.call({ action: 'resolve', instructionId: 'unknown' });
+    assert.deepEqual(noPending.details.recovery.resolveRequirements.pendingInstructions, []);
+    assert.equal(noPending.details.recovery.resolveRequirements.retryArguments, undefined);
+  } finally { await h.cleanup(); }
+});
+
+test('resolve recovery leaves multiple pending instructions for explicit selection', async () => {
+  const h = harness(); try {
+    await h.call({ action: 'init', objective: 'Goal' });
+    h.controller.instruction('First request'); h.controller.instruction('Second request');
+    const before = h.store.read()!;
+    const failed = await h.call({ action: 'resolve' });
+    const requirements = failed.details.recovery.resolveRequirements;
+    assert.deepEqual(requirements.pendingInstructions, before.control.instructions);
+    assert.equal(requirements.retryArguments, undefined);
+    assert.deepEqual(h.store.read(), before);
+    const resolved = await h.call({ action: 'resolve', instructionId: requirements.pendingInstructions[1].id });
+    assert.equal(resolved.isError, undefined);
+    assert.deepEqual(resolved.details.pendingInstructions, [before.control.instructions[0]]);
+  } finally { await h.cleanup(); }
+});
+
 test('current module skills are loaded and advance only after acceptance or explicit skip', async () => {
   const h = harness(); try {
     await h.call({ action: 'init', objective: 'Goal' });

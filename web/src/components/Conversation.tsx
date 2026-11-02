@@ -28,9 +28,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   RotateCcw,
-  ChevronDown,
-  ChevronRight,
-  LoaderCircle,
 } from 'lucide-react';
 import { useStickToBottom } from 'use-stick-to-bottom';
 import { SkillBox } from './SkillBox';
@@ -41,6 +38,7 @@ import { Markdown, preloadMarkdown } from './Markdown';
 import { SelectionToolbar } from './SelectionToolbar';
 import { SubSessionView } from './SubSessionView';
 import { copyText } from '../lib/clipboard';
+import { ThinkingBlock } from './ThinkingBlock';
 import type {
   Attachment,
   ChatMessage,
@@ -56,37 +54,6 @@ function isFinalAnswer(session: ResearchSession, message: ChatMessage) {
   const nextUser = following.findIndex((item) => item.role === 'user');
   const turn = nextUser < 0 ? following : following.slice(0, nextUser);
   return turn.length === 0 && (nextUser >= 0 || !['running', 'stopping'].includes(session.status));
-}
-
-/** Collapsible thinking block: expanded while running, collapsed when done. */
-function ThinkingBlock({ text, status }: { text: string; status: string }) {
-  const running = status === 'running';
-  const [expanded, setExpanded] = useState(running);
-  useEffect(() => {
-    if (running) setExpanded(true);
-    else setExpanded(false);
-  }, [running]);
-  if (!text) return null;
-  return (
-    <div className="thinking-block" data-status={status}>
-      <button
-        className="thinking-header"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-      >
-        <span className="thinking-icon">
-          {running ? <LoaderCircle size={14} className="spin" /> : <Brain size={14} />}
-        </span>
-        <span className="thinking-title">{running ? '正在思考…' : '思考过程'}</span>
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-      </button>
-      {expanded && (
-        <div className="thinking-content">
-          <Markdown streaming={running}>{text}</Markdown>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function UserMessage({
@@ -470,7 +437,7 @@ export function Conversation({
                             />
                           ))}
                     </Fragment>
-                  ) : m.text || m.thinking ? (
+                  ) : m.text || m.thinking?.trim() || m.thinkingStatus === 'running' ? (
                     <article
                       key={m.id}
                       className="assistant-message"
@@ -483,9 +450,7 @@ export function Conversation({
                           minute: '2-digit',
                         })}
                       </time>
-                      {m.thinking && (
-                        <ThinkingBlock text={m.thinking} status={m.thinkingStatus || 'completed'} />
-                      )}
+                      <ThinkingBlock text={m.thinking} status={m.thinkingStatus} />
                       {m.text && (
                         <div className="assistant-body">
                           <Markdown streaming={m.status === 'running'}>{m.text}</Markdown>

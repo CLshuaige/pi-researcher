@@ -8,6 +8,7 @@ import { Markdown } from './Markdown';
 import { FileIcon } from './FileIcon';
 import { Disclosure } from './ui/animated';
 import { toolTitle } from './ToolStep';
+import { ThinkingBlock } from './ThinkingBlock';
 
 function duration(start: number, end: number) {
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
@@ -133,7 +134,8 @@ export function SubSessionView({
                     </Disclosure>
                   ) : (
                     <div key={m.id} className="child-answer">
-                      <Markdown>{m.text}</Markdown>
+                      <ThinkingBlock text={m.thinking} status={m.thinkingStatus} />
+                      {m.text && <Markdown>{m.text}</Markdown>}
                     </div>
                   ),
                 )

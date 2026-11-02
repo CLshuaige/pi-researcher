@@ -2,6 +2,7 @@ import { open, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ChatMessage, StepStatus } from '../shared/types.ts';
 import type { StoredSession } from './store.ts';
+import { thinkingText } from './thinking.ts';
 
 function object(value: unknown): Record<string, any> {
   return value && typeof value === 'object' ? (value as Record<string, any>) : {};
@@ -36,18 +37,21 @@ export function childMessages(raw: unknown[], prefix: string): ChatMessage[] {
     const id = String(item.id || `${prefix}-${index}`);
     if (message.role === 'assistant') {
       const content = text(message);
-      if (content)
+      const thinking = thinkingText(message);
+      const status =
+        message.stopReason === 'error'
+          ? 'failed'
+          : message.stopReason === 'aborted'
+            ? 'cancelled'
+            : 'completed';
+      if (content || thinking?.trim())
         result.push({
           id,
           role: 'assistant',
           text: content,
           timestamp,
-          status:
-            message.stopReason === 'error'
-              ? 'failed'
-              : message.stopReason === 'aborted'
-                ? 'cancelled'
-                : 'completed',
+          status,
+          ...(thinking !== undefined ? { thinking, thinkingStatus: status } : {}),
         });
       if (Array.isArray(message.content))
         for (const block of message.content)

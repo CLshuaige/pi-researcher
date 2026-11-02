@@ -130,8 +130,14 @@ export function parseChecklist(value: unknown): Workflow {
         x: 20,
         y: i * 150,
       })),
-      edges: checklist.modules.flatMap((m: any) =>
-        (m.dependencies || []).map((source: string) => {
+      // Execution is ordered even when modules omit explicit dependencies.
+      edges: checklist.modules.flatMap((m: any, i: number) =>
+        [
+          ...new Set<string>([
+            ...(i ? [checklist.modules[i - 1].id] : []),
+            ...(m.dependencies || []),
+          ]),
+        ].map((source: string) => {
           if (!ids.has(source)) throw new Error('Checklist 依赖不存在');
           return { source, target: m.id };
         }),

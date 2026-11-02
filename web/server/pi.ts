@@ -20,6 +20,7 @@ import { buildMessagePrompt } from './messages.ts';
 import type { StoredSession } from './store.ts';
 import { SessionStore } from './store.ts';
 import { markStage, stageForTool } from './workflow.ts';
+import { thinkingText } from './thinking.ts';
 
 type Changed = (s: StoredSession) => void;
 type Live = {
@@ -345,9 +346,10 @@ export class PiBridge {
           const m: ChatMessage = {
             id: randomUUID(),
             role: 'assistant',
-            text: '',
+            text: resultText(event.message, Infinity),
             timestamp: Date.now(),
             status: 'running',
+            thinking: thinkingText(event.message),
           };
           live.assistantId = m.id;
           s.messages.push(m);
@@ -356,13 +358,17 @@ export class PiBridge {
       case 'message_update': {
         const delta = event.assistantMessageEvent;
         const m = s.messages.find((m) => m.id === live.assistantId);
-        if (m && delta.type === 'text_delta') m.text += delta.delta;
-        if (m && delta.type === 'thinking_delta') {
-          m.thinking = (m.thinking || '') + delta.delta;
+        // SDK updates carry the entire response so far. A thinking_end contains
+        // only one block; assigning its content would erase earlier blocks.
+        if (m && event.message.role === 'assistant') {
+          m.text = resultText(event.message, Infinity);
+          const thinking = thinkingText(event.message);
+          if (thinking !== undefined) m.thinking = thinking;
+        }
+        if (m && (delta.type === 'thinking_start' || delta.type === 'thinking_delta')) {
           m.thinkingStatus = 'running';
         }
         if (m && delta.type === 'thinking_end') {
-          m.thinking = delta.content;
           m.thinkingStatus = 'completed';
         }
         break;
@@ -372,12 +378,15 @@ export class PiBridge {
           const m = s.messages.find((m) => m.id === live.assistantId);
           if (m) {
             m.text = resultText(event.message, Infinity);
+            const thinking = thinkingText(event.message);
+            if (thinking !== undefined) m.thinking = thinking;
             m.status =
               event.message.stopReason === 'error'
                 ? 'failed'
                 : event.message.stopReason === 'aborted'
                   ? 'cancelled'
                   : 'completed';
+            if (m.thinking !== undefined || m.thinkingStatus) m.thinkingStatus = m.status;
           }
           if (event.message.errorMessage && event.message.stopReason === 'error')
             s.error = event.message.errorMessage;
@@ -451,12 +460,19 @@ export class PiBridge {
         }
         if (s.notice?.startsWith('连接暂时中断') || s.notice?.startsWith('正在整理会话上下文'))
           delete s.notice;
-        for (const m of s.messages)
+        for (const m of s.messages) {
           if (m.status === 'running') {
             m.status = event.aborted ? 'cancelled' : 'completed';
             if (event.aborted && m.role === 'tool')
               markStage(s.workflow, stageForTool(m.name || '', m.args), 'cancelled');
           }
+          if (m.thinkingStatus === 'running')
+            m.thinkingStatus = event.aborted
+              ? 'cancelled'
+              : m.status === 'failed'
+                ? 'failed'
+                : 'completed';
+        }
         this.mapEntries(s, live);
         void this.refresh(s).catch(() => {});
         break;

@@ -80,6 +80,37 @@ test('Checklist validates unique IDs, real edges and finite positions', () => {
     parseChecklist({ ...graph, nodes: [{ ...graph.nodes[0], status: 'invented' }] }),
   );
 });
+test('ordered checklist modules always connect and preserve extra dependencies without duplicate edges', () => {
+  const modules = ['scope', 'papers', 'method', 'report'].map((id) => ({
+    id,
+    objective: id,
+    skills: [],
+    status: 'pending',
+  }));
+  const sequential = [
+    { source: 'scope', target: 'papers' },
+    { source: 'papers', target: 'method' },
+    { source: 'method', target: 'report' },
+  ];
+  assert.deepEqual(parseChecklist({ modules }).edges, sequential);
+  assert.deepEqual(
+    parseChecklist({ modules: modules.map((m) => ({ ...m, dependencies: [] })) }).edges,
+    sequential,
+  );
+  const explicit = modules.map((m, i) => ({ ...m, dependencies: i ? [modules[i - 1].id] : [] }));
+  explicit[3].dependencies.push('scope');
+  assert.deepEqual(parseChecklist({ modules: explicit }).edges, [
+    ...sequential,
+    { source: 'scope', target: 'report' },
+  ]);
+  assert.throws(
+    () => parseChecklist({ modules: [{ ...modules[0], dependencies: ['missing'] }] }),
+    /依赖不存在/,
+  );
+  assert.deepEqual(parseChecklist({ modules: [] }).edges, []);
+  assert.deepEqual(parseChecklist({ modules: [modules[0]] }).edges, []);
+});
+
 test('tool source extraction deduplicates links and keeps only HTTP(S)', () => {
   const links = extractLinks(
     '[Paper](https://arxiv.org/abs/1234.5678) https://arxiv.org/abs/1234.5678 javascript:alert(1)',

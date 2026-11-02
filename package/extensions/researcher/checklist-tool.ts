@@ -21,7 +21,7 @@ export const ChecklistParameters = Type.Object({
   status: Type.Optional(Type.Union(ModuleSchema.properties.status.anyOf, { description: 'update only. Do not copy current status into accept: accept always completes after validation and ignores redundant status.' })),
   evidence: Type.Optional(ModuleSchema.properties.evidence),
   acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Exactly one verified explanation per criterion, in criteria order. reason is an audit note, not acceptance. Omitted values reuse saved acceptance.' })),
-  instructionId: Type.Optional(Type.String({ description: 'resolve only: pending instruction ID; reason records its resolution.' })),
+  instructionId: Type.Optional(Type.String({ minLength: 1, description: 'REQUIRED for resolve: copy an exact ID from the latest pendingInstructions. Never guess or omit it; reason records its resolution.' })),
 }, { additionalProperties: false });
 export type ChecklistArguments = Static<typeof ChecklistParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
@@ -37,7 +37,7 @@ Use ONE mutation per tool result, not a batch. In examples replace expectedRevis
 - Accept: {"action":"accept","expectedRevision":1,"reason":"Verified source","moduleId":"M1","evidence":["research/result.md"],"acceptance":["Original source supports criterion 1"]}.
   Automatically sets completed; omit status (redundant status is ignored). reason does not replace acceptance. Omitted evidence/acceptance reuse saved values, which must still pass validation. Start first. Requires one nonempty explanation per criterion, existing evidence, no active module tasks. Acceptance cannot change criteria. Then start the next module.
 - Resolve user input: {"action":"resolve","expectedRevision":1,"reason":"Explained how this request was handled","instructionId":"I-..."}.
-  Optional objective changes the global goal and reopens modules. objective is accepted only in init/resolve.
+  instructionId is required: copy the exact id from pendingInstructions in the latest result/checkpoint; I-... is a placeholder, not an ID. Resolve one instruction per call. status does not resolve an instruction. Optional objective changes the global goal and reopens modules. objective is accepted only in init/resolve.
 - Recover externally edited/deleted JSON: {"action":"repair"}; restores the committed snapshot and preserves rejected content.
 Use moduleId plus top-level fields; the old module parameter is rejected. Paths are workspace-relative or absolute within the root; evidence may be an http(s) URL. Errors return recovery.nextAction/currentRevision/currentModuleId. Correct arguments and retry; do not blindly repeat.`;
 
@@ -51,6 +51,7 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
   if (p.objective !== undefined && p.action !== 'resolve') throw new Error('Change objective through resolve with instructionId.');
   return store.change(p.reason, c => {
     if (p.action === 'resolve') {
+      if (!p.instructionId?.trim()) throw new Error('resolve requires instructionId. Copy an exact ID from pendingInstructions; status cannot replace instructionId.');
       const instruction = c.control.instructions.find(i => i.id === p.instructionId);
       if (!instruction) throw new Error('Unknown instructionId. Read pendingInstructions.');
       if (p.objective && p.objective !== c.objective) {
@@ -112,10 +113,26 @@ function acceptanceProblems(store: ChecklistStore, m: ResearchModule): string[] 
 export function checklistRecovery(store: ChecklistStore, error: unknown, attempted?: ChecklistArguments) {
   let currentRevision: number | undefined; let currentModuleId: string | undefined; let nextAction = 'read';
   let acceptanceRequirements: object | undefined;
+  let resolveRequirements: object | undefined;
   try {
     const c = store.read(); currentRevision = c?.revision;
     const m = c && currentModule(c); currentModuleId = m?.id;
     if (!c) nextAction = 'init';
+    if (attempted?.action === 'resolve' && c) {
+      const pendingInstructions = c.control.instructions.filter(i => !i.resolution);
+      resolveRequirements = {
+        pendingInstructions,
+        requiredFields: ['action', 'expectedRevision', 'reason', 'instructionId'],
+        ...(pendingInstructions.length === 1 ? { retryArguments: {
+          action: 'resolve', expectedRevision: c.revision, instructionId: pendingInstructions[0].id,
+          ...(typeof attempted.reason === 'string' && attempted.reason.trim() ? { reason: attempted.reason } : {}),
+          ...(typeof attempted.objective === 'string' && attempted.objective.trim() ? { objective: attempted.objective } : {}),
+        } } : {}),
+        instruction: pendingInstructions.length
+          ? 'Choose the instruction you actually handled and copy its exact id. Submit action=resolve, expectedRevision, instructionId and a nonempty reason. Resolve one at a time; omit status. Do not repeat the failed arguments.'
+          : 'There are no pending instructions to resolve. Read current state and follow nextAction; do not invent an instructionId.',
+      };
+    }
     if (attempted?.action === 'accept' && m && attempted.moduleId === m.id) {
       const effective = { ...m, evidence: Array.isArray(attempted.evidence) && attempted.evidence.every(x => typeof x === 'string') ? attempted.evidence : m.evidence, acceptance: Array.isArray(attempted.acceptance) && attempted.acceptance.every(x => typeof x === 'string') ? attempted.acceptance : m.acceptance };
       acceptanceRequirements = {
@@ -127,5 +144,5 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       };
     }
   } catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
 }

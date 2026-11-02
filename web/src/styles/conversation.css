@@ -649,7 +649,7 @@
   background: var(--panel-soft);
   overflow: hidden;
 }
-.thinking-header {
+.thinking-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -663,7 +663,7 @@
   text-align: left;
   transition: background var(--motion-fast);
 }
-.thinking-header:hover {
+.thinking-toggle:hover {
   background: var(--hover);
 }
 .thinking-icon {
