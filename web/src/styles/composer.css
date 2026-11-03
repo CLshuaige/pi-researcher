@@ -211,8 +211,10 @@
   background: transparent !important;
 }
 .composer-editor-wrapper .w-md-editor-text-pre,
+.composer-editor-wrapper .w-md-editor-text-pre > code,
 .composer-editor-wrapper .w-md-editor-text-input,
 .composer-editor-wrapper .w-md-editor-text {
+  /* The visible code layer and textarea caret must use identical text metrics. */
   font-size: 15px !important;
   line-height: 26px !important;
   color: var(--ink) !important;
