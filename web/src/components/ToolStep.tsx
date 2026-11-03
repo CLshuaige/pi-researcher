@@ -15,6 +15,17 @@ import {
 import type { ChatMessage, SourceLink } from '../../shared/types';
 
 export function toolTitle(m: ChatMessage) {
+  const checklistActions: Record<string, string> = {
+    help: '查看清单说明',
+    read: '读取研究状态',
+    init: '初始化研究清单',
+    plan: '规划研究阶段',
+    start: '启动研究阶段',
+    update: '更新阶段记录',
+    accept: '验收研究阶段',
+    resolve: '处理待办指令',
+    repair: '恢复清单快照',
+  };
   const names: Record<string, string> = {
     'research-task': '任务解析',
     academic_search: '文献检索',
@@ -40,14 +51,13 @@ export function toolTitle(m: ChatMessage) {
     bash: '执行命令',
     ask_user: '等待你的决定',
   };
-  const label = names[m.name || ''] || m.name || '工具调用';
-  return m.status === 'completed'
-    ? `${label}已完成`
-    : m.status === 'failed'
-      ? `${label}未完成`
-      : m.status === 'cancelled'
-        ? `${label}已停止`
-        : `${label}进行中`;
+  const title = typeof m.args?.title === 'string' ? m.args.title.replace(/\s+/g, ' ').trim() : '';
+  const checklistLabel =
+    m.name === 'research_checklist'
+      ? (title && Array.from(title).slice(0, 12).join('')) ||
+        checklistActions[typeof m.args?.action === 'string' ? m.args.action : '']
+      : undefined;
+  return checklistLabel || names[m.name || ''] || m.name || '工具调用';
 }
 
 /** Extract file paths from tool args that reference generated files. */

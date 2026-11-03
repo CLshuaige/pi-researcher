@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChecklistStore, checklistState, currentModule } from '../extensions/researcher/checklist.ts';
-import { applyChecklistAction } from '../extensions/researcher/checklist-tool.ts';
+import { applyChecklistAction, ChecklistParameters } from '../extensions/researcher/checklist-tool.ts';
+import { Value } from 'typebox/value';
 import { ResearchController } from '../extensions/researcher/controller.ts';
 import { ResearchRunner } from '../extensions/researcher/runner.ts';
 import { acquireOwnerLock } from '../extensions/researcher/store.ts';
@@ -388,13 +389,45 @@ test('accept reports count and missing file problems without changing the checkl
   } finally { await h.cleanup(); }
 });
 
-test('three repeated checklist failures pause after turn; read/help and prose changes cannot hide the loop', async () => {
+test('optional short titles preserve the protocol, audit reasons and acceptance checks', async () => {
+  assert.equal(Value.Check(ChecklistParameters, { action: 'read' }), true);
+  assert.equal(Value.Check(ChecklistParameters, { action: 'read', title: '一二三四五六七八九十甲乙' }), true);
+  assert.equal(Value.Check(ChecklistParameters, { action: 'read', title: '一二三四五六七八九十甲乙丙' }), false);
+  assert.equal(Value.Check(ChecklistParameters, { action: 'read', title: 123 }), false);
+  const h = harness(); try {
+    await h.call({ action: 'init', objective: 'Goal', title: '初始化研究' });
+    await h.call({ action: 'plan', modules: [definition('M1')], title: '规划证据核查', reason: 'Preserve the audit rationale' });
+    assert.equal(h.store.read()!.audit.at(-1)!.reason, 'Preserve the audit rationale');
+    const before = h.store.read()!;
+    const conflict = await h.call({ action: 'start', moduleId: 'M1', expectedRevision: before.revision - 1, title: '启动研究' });
+    assert.equal(conflict.isError, true);
+    assert.deepEqual(h.store.read(), before);
+    await h.call({ action: 'start', moduleId: 'M1' });
+    const failed = await h.call({ action: 'accept', moduleId: 'M1', title: '核验研究产物', reason: 'This is still not acceptance' });
+    assert.equal(failed.isError, true);
+    assert.equal(h.store.read()!.modules[0].status, 'running');
+    assert.match(failed.details.error, /received 0/);
+    writeFileSync(join(h.root, 'evidence.txt'), 'real artifact');
+    const accepted = await h.call({ action: 'accept', moduleId: 'M1', title: '核验研究产物', reason: 'Verified against original criterion', evidence: ['evidence.txt'], acceptance: ['Verified the artifact'] });
+    assert.equal(accepted.isError, undefined);
+    assert.equal(h.store.read()!.modules[0].status, 'completed');
+    assert.equal(h.store.read()!.modules[0].reason, 'Verified against original criterion');
+    assert.equal(h.store.read()!.audit.at(-1)!.reason, 'Verified against original criterion');
+    assert.equal(JSON.stringify(h.store.read()).includes('"title"'), false);
+    h.controller.instruction('Clarify scope');
+    const instructionId = h.store.read()!.control.instructions.at(-1)!.id;
+    await h.call({ action: 'resolve', instructionId, title: '处理范围澄清', reason: 'Retain the original scope' });
+    assert.equal(h.store.read()!.control.instructions.at(-1)!.resolution, 'Retain the original scope');
+  } finally { await h.cleanup(); }
+});
+
+test('three repeated checklist failures pause after turn; read/help, title and reason changes cannot hide the loop', async () => {
   const h = harness(); try {
     await h.call({ action: 'init', objective: 'Goal' });
     await h.call({ action: 'plan', modules: [definition('M1')] });
     await h.call({ action: 'start', moduleId: 'M1' });
     for (let i = 1; i <= 3; i++) {
-      const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance', reason: `I will now fix the arguments ${i}` });
+      const failed = await h.call({ action: 'accept', moduleId: 'M1', status: 'awaiting_acceptance', title: `核验研究产物${i}`, reason: `I will now fix the arguments ${i}` });
       assert.equal(failed.details.recovery.repeatedAttempts, i);
       assert.equal(failed.details.recovery.pauseAfterTurn, i === 3);
       await h.call({ action: 'read' }); await h.call({ action: 'help' });

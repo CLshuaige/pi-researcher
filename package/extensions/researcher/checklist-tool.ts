@@ -12,6 +12,7 @@ const Definition = Type.Object({
   acceptance: Type.Optional(ModuleSchema.properties.acceptance), reason: Type.Optional(Type.String()),
 });
 export const ChecklistParameters = Type.Object({
+  title: Type.Optional(Type.String({ maxLength: 12, description: 'Optional display-only action title, at most 12 characters. Use a short Chinese action phrase without execution status; the UI derives status from the actual result and falls back to the action name when omitted. Never replaces reason or acceptance.' })),
   action: Type.Union([Type.Literal("help"), Type.Literal("read"), Type.Literal("init"), Type.Literal("repair"), Type.Literal("plan"), Type.Literal("start"), Type.Literal("update"), Type.Literal("accept"), Type.Literal("resolve")]),
   expectedRevision: Type.Optional(Type.Integer({ minimum: 1, description: 'Use the revision from the latest tool result or checkpoint. On conflict read again; never guess.' })),
   reason: Type.Optional(Type.String({ minLength: 1, description: 'Why this mutation is necessary; required except help/read/init/repair.' })),
@@ -25,6 +26,7 @@ export const ChecklistParameters = Type.Object({
 }, { additionalProperties: false });
 export type ChecklistArguments = Static<typeof ChecklistParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
+For each call, provide title when possible: a Chinese action phrase of at most 12 characters, e.g. "规划研究阶段" or "核验训练产物". title is optional display metadata; omit completion/failure claims. The program determines execution status and uses a fixed action label when title is absent. reason remains the mutation rationale/audit note or instruction resolution, never a title or acceptance explanation.
 Use ONE mutation per tool result, not a batch. In examples replace expectedRevision:1 with the revision in the latest result/checkpoint. On conflict read again; never guess or use repair for conflicts.
 - Help: {"action":"help"}; inspect state: {"action":"read"}.
 - Initialize once: {"action":"init","objective":"Research goal"}.

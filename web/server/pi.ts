@@ -226,7 +226,7 @@ export class PiBridge {
       resourceLoader: loader,
       settingsManager,
       sessionManager: manager,
-      thinkingLevel: s.thinkingLevel || 'low',
+      thinkingLevel: s.thinkingLevel || 'medium',
     });
     if (s.model) {
       const slash = s.model.indexOf('/');

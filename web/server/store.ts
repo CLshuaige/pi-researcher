@@ -71,7 +71,7 @@ export class SessionStore {
       artifacts: [],
       revision: 0,
       model: '',
-      thinkingLevel: 'low',
+      thinkingLevel: 'medium',
       subSessions: [],
     };
     this.sessions.set(id, session);

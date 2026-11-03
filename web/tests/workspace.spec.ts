@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('reference layout, source expansion and bounded tool detail', async ({ page }) => {
-  await expect(page.getByText('任务解析已完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: '任务解析', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /在 arXiv 中搜索/ })).toHaveAttribute(
     'aria-expanded',
     'true',
