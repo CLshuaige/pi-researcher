@@ -1,8 +1,8 @@
 .flow-section {
   display: flex;
   flex-direction: column;
-  height: 55%;
-  min-height: 330px;
+  height: 42%;
+  min-height: 300px;
   min-width: 0;
 }
 .flow-canvas {
@@ -15,20 +15,22 @@
 }
 .flow-node {
   position: relative;
-  width: 148px;
-  padding: 12px 14px;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-soft);
 }
 .flow-node strong {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .flow-node p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .flow-node[data-status='running'] {
@@ -146,10 +148,14 @@
 .flow-legend {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 18px;
+  gap: 12px;
+  padding: 10px 18px;
   color: var(--muted);
   font-size: 11px;
+}
+.flow-pan-hint {
+  margin-left: auto;
+  font-size: 10px;
 }
 .flow-legend > span {
   display: flex;
@@ -191,12 +197,6 @@
   box-shadow: 0 8px 30px #0f172a29;
 }
 
-.flow-node {
-  width: 236px;
-  height: 126px;
-  padding: 12px 14px;
-  overflow: visible;
-}
 .flow-node > p {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -208,7 +208,7 @@
 }
 .flow-node small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -220,13 +220,12 @@
   border-radius: 0;
   padding: 0;
 }
-.flow-node[data-with-resources='true'] {
-  width: 184px;
-}
 .workflow-resource-tree {
-  width: 190px;
+  width: 100%;
   min-height: 30px;
-  padding: 5px 6px;
+  max-height: 152px;
+  overflow-y: auto;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);

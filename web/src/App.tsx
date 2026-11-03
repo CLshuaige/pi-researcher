@@ -38,7 +38,7 @@ export default function App() {
     'profile',
   );
   const [profile, setProfile] = useState({ name: '研究者', avatar: '' });
-  const [flowRatio, setFlowRatio] = useState(0.55);
+  const [flowRatio, setFlowRatio] = useState(0.42);
   const [showSettings, setShowSettings] = useState(false);
   const [inspectorView, setInspectorView] = useState<'research' | 'preview'>('research');
   const [previewTabs, setPreviewTabs] = useState<PreviewTab[]>([]);
@@ -84,8 +84,22 @@ export default function App() {
     }
   }, [isEmptySession, hasPreviewTabs, hasArtifacts]);
   // Resizable panel widths
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const resize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
   const [sidebarW, setSidebarW] = useState(256);
-  const [inspectorW, setInspectorW] = useState(() => (window.innerWidth > 1200 ? 440 : 330));
+  const [inspectorW, setInspectorW] = useState(() =>
+    window.innerWidth > 1200
+      ? Math.min(760, Math.round(window.innerWidth * 0.45))
+      : Math.min(420, Math.max(330, Math.round(window.innerWidth * 0.36))),
+  );
+  const visibleInspectorW = Math.min(
+    inspectorW,
+    Math.max(300, Math.min(viewportWidth * 0.65, viewportWidth - (sidebar ? sidebarW : 0) - 400)),
+  );
   const dragState = useRef<{
     panel: 'sidebar' | 'inspector' | 'flow';
     startX: number;
@@ -95,7 +109,7 @@ export default function App() {
     dragState.current = {
       panel,
       startX: panel === 'flow' ? e.clientY : e.clientX,
-      startW: panel === 'flow' ? flowRatio : panel === 'sidebar' ? sidebarW : inspectorW,
+      startW: panel === 'flow' ? flowRatio : panel === 'sidebar' ? sidebarW : visibleInspectorW,
     };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -319,7 +333,7 @@ export default function App() {
       data-inspector={showFlow || showArtifacts || hasPreviewTabs ? 'open' : 'closed'}
       style={
         {
-          gridTemplateColumns: `${sidebar ? sidebarW : 0}px minmax(0, 1fr) ${showFlow || showArtifacts || hasPreviewTabs ? inspectorW : 0}px`,
+          gridTemplateColumns: `${sidebar ? sidebarW : 0}px minmax(0, 1fr) ${showFlow || showArtifacts || hasPreviewTabs ? visibleInspectorW : 0}px`,
         } as React.CSSProperties
       }
     >

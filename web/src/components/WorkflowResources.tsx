@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { FileTree } from './FileTree';
 import type { Artifact, WorkflowNode } from '../../shared/types';
@@ -41,27 +40,16 @@ export type ResourceData = {
   stageId: string;
   resources: Artifact[];
   onPreview: (path: string, name: string) => void;
-  onSize: (id: string, height: number) => void;
 } & Record<string, unknown>;
 export type ResourceFlowNode = Node<ResourceData, 'resources'>;
 export function WorkflowResources({ data }: NodeProps<ResourceFlowNode>) {
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!root.current) return;
-    const observer = new ResizeObserver((entries) =>
-      data.onSize(data.stageId, entries[0].contentRect.height),
-    );
-    observer.observe(root.current);
-    return () => observer.disconnect();
-  }, [data.onSize, data.stageId]);
   return (
     <div
-      ref={root}
       className="workflow-resource-tree nodrag nopan nowheel"
       role="tree"
       aria-label="节点相关文件"
     >
-      <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={Position.Top} />
       <FileTree
         artifacts={data.resources}
         compact

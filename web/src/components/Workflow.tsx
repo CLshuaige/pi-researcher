@@ -1,6 +1,6 @@
 import { Dialog } from '@animate-ui/react/primitives/radix-ui/dialog';
 import { WorkflowResources, resourcesForStage, type ResourceFlowNode } from './WorkflowResources';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   ReactFlow,
@@ -11,20 +11,22 @@ import {
   type Node,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { Check, Maximize2, Minimize2, Minus, Plus, X } from 'lucide-react';
+import { Check, Maximize2, Minimize2, Minus, Plus, Scan, X } from 'lucide-react';
 import type { Workflow as WorkflowData, WorkflowNode, Artifact } from '../../shared/types';
 
 type StageNode = Node<WorkflowNode & Record<string, unknown>, 'stage'>;
+const STAGE_WIDTH = 280;
+const STAGE_HEIGHT = 152;
+const STAGE_GAP = 72;
+const RESOURCE_GAP = 28;
 function Stage({ data }: NodeProps<StageNode>) {
   return (
     <div
       className="flow-node"
       data-status={data.status}
       data-optional={!!data.optional}
-      data-with-resources={!!data.hasResources}
       aria-label={`${data.label}，${{ pending: '等待中', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[data.status]}`}
     >
-      <Handle type="target" position={Position.Top} id="top" />
       <Handle type="target" position={Position.Left} id="left" />
       <span className="node-dot">{data.status === 'completed' && <Check size={9} />}</span>
       <strong>{data.label}</strong>
@@ -68,34 +70,29 @@ function FlowCanvas({
     setInstance(inst);
     onInit?.(inst);
   };
-  const [heights, setHeights] = useState<Record<string, number>>({});
-  const onSize = useCallback((id: string, height: number) => {
-    const rounded = Math.ceil(height);
-    setHeights((old) => (old[id] === rounded ? old : { ...old, [id]: rounded }));
-  }, []);
   const nodes: FlowNode[] = useMemo(() => {
     const result: FlowNode[] = [];
-    let y = 0;
-    for (const node of workflow.nodes) {
+    for (const [index, node] of workflow.nodes.entries()) {
+      const x = 20 + index * (STAGE_WIDTH + STAGE_GAP);
       const resources = resourcesForStage(node, artifacts);
       result.push({
         id: node.id,
         type: 'stage',
-        position: { x: 20, y },
-        data: { ...node, hasResources: resources.length > 0 },
+        position: { x, y: 0 },
+        style: { width: STAGE_WIDTH, height: STAGE_HEIGHT },
+        data: { ...node },
       });
       if (resources.length)
         result.push({
           id: `resources-${node.id}`,
           type: 'resources',
-          style: { pointerEvents: 'all' },
-          position: { x: 234, y: y + 20 },
-          data: { stageId: node.id, resources, onPreview: onPreviewFile, onSize },
+          style: { pointerEvents: 'all', width: STAGE_WIDTH },
+          position: { x, y: STAGE_HEIGHT + RESOURCE_GAP },
+          data: { stageId: node.id, resources, onPreview: onPreviewFile },
         });
-      y += Math.max(210, (heights[node.id] || 0) + 70);
     }
     return result;
-  }, [workflow, artifacts, heights, onPreviewFile, onSize]);
+  }, [workflow, artifacts, onPreviewFile]);
   const edges = useMemo(
     () => [
       ...workflow.edges.map((e, i) => {
@@ -112,8 +109,8 @@ function FlowCanvas({
           source: e.source,
           target: e.target,
           type: 'smoothstep',
-          sourceHandle: e.optional ? 'right' : 'bottom',
-          targetHandle: e.optional ? 'left' : 'top',
+          sourceHandle: 'right',
+          targetHandle: 'left',
           animated: target?.status === 'running',
           style: {
             stroke: color,
@@ -130,7 +127,7 @@ function FlowCanvas({
           source: node.data.stageId as string,
           target: node.id,
           type: 'smoothstep',
-          sourceHandle: 'right',
+          sourceHandle: 'bottom',
           targetHandle: undefined,
           animated: false,
           style: { stroke: '#a8b9d2', strokeWidth: 1.3, strokeDasharray: undefined },
@@ -185,7 +182,7 @@ function FlowCanvas({
         onInit={handleInit}
         fitView={full}
         defaultViewport={{ x: 28, y: 24, zoom: 0.85 }}
-        fitViewOptions={{ padding: full ? 0.3 : 0.12, minZoom: full ? 0.3 : 0.75, maxZoom: 1 }}
+        fitViewOptions={{ padding: full ? 0.2 : 0.12, minZoom: 0.25, maxZoom: 1 }}
         minZoom={0.25}
         maxZoom={2.5}
         nodesDraggable={false}
@@ -228,6 +225,21 @@ export function Workflow({
         <div className="section-header">
           {header}
           <div className="flow-header-controls">
+            <button
+              className="icon-button"
+              aria-label="适应流程图"
+              title="查看完整流程"
+              onClick={() =>
+                void instanceRef.current?.fitView({
+                  padding: 0.12,
+                  minZoom: 0.25,
+                  maxZoom: 1,
+                  duration: 160,
+                })
+              }
+            >
+              <Scan size={14} />
+            </button>
             <button
               className="icon-button"
               aria-label="缩小流程图"
@@ -284,6 +296,7 @@ export function Workflow({
             <i className="legend-dot optional" />
             可选
           </span>
+          <span className="flow-pan-hint">左右拖动查看后续节点</span>
         </div>
       </section>
       {fullscreen && (

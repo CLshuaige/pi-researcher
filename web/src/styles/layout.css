@@ -150,9 +150,9 @@
   background: var(--background);
 }
 .inspector[data-panel-layout='split'] {
-  grid-template-rows: minmax(0, var(--flow-fraction, 0.55fr)) 9px minmax(
+  grid-template-rows: minmax(0, var(--flow-fraction, 0.42fr)) 9px minmax(
       0,
-      var(--artifact-fraction, 0.45fr)
+      var(--artifact-fraction, 0.58fr)
     );
 }
 .section-header {

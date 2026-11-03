@@ -8,8 +8,9 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:test": "node scripts/dev.mjs --test",
     "dev:client": "vite --host 127.0.0.1",
-    "dev:server": "tsx watch server/index.ts",
+    "dev:server": "tsx watch --clear-screen=false --include 'server/**/*.ts' --include '../package/extensions/**/*.ts' server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts",
