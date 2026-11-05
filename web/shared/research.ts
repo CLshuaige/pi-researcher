@@ -1,3 +1,12 @@
+import type { ResearchSession } from './types';
+
+export function isResearchRunning(session: Pick<ResearchSession, 'status' | 'workflow'>): boolean {
+  return (
+    session.status === 'running' ||
+    (session.status === 'idle' && session.workflow.control?.state === 'waiting')
+  );
+}
+
 export const RESEARCH_STAGE_LABELS: Record<string, string> = {
   'research-task': '任务解析',
   'research-literature': '文献调研',

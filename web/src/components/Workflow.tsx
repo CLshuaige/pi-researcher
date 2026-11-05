@@ -12,7 +12,13 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import { Check, Maximize2, Minimize2, Minus, Plus, Scan, X } from 'lucide-react';
-import type { Workflow as WorkflowData, WorkflowNode, Artifact } from '../../shared/types';
+import type {
+  Workflow as WorkflowData,
+  WorkflowNode,
+  Artifact,
+  ChatMessage,
+} from '../../shared/types';
+import { ResearchActivity } from './ResearchActivity';
 
 type StageNode = Node<WorkflowNode & Record<string, unknown>, 'stage'>;
 const STAGE_WIDTH = 280;
@@ -173,7 +179,7 @@ function FlowCanvas({
       {/* Top-right status pill */}
       <div className={`canvas-status${running ? ' active' : ''}`}>
         <span className="status-dot" />
-        {running ? '进行' : '就位'}
+        {running ? '运行中' : '就位'}
       </div>
       <ReactFlow<FlowNode>
         nodes={nodes}
@@ -201,8 +207,10 @@ export function Workflow({
   artifacts,
   onPreviewFile,
   running,
+  messages,
 }: {
   running: boolean;
+  messages: ChatMessage[];
   workflow: WorkflowData;
   onClose: () => void;
   artifacts: Artifact[];
@@ -298,6 +306,7 @@ export function Workflow({
           </span>
           <span className="flow-pan-hint">左右拖动查看后续节点</span>
         </div>
+        <ResearchActivity messages={messages} />
       </section>
       {fullscreen && (
         <Dialog.Root open onOpenChange={setFullscreen}>
@@ -329,6 +338,7 @@ export function Workflow({
                 running={running}
               />
               <div className="flow-legend">拖动画布平移，滚轮缩放，点击适应画布查看完整流程</div>
+              <ResearchActivity messages={messages} />
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>

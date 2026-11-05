@@ -39,6 +39,7 @@ import { SelectionToolbar } from './SelectionToolbar';
 import { SubSessionView } from './SubSessionView';
 import { copyText } from '../lib/clipboard';
 import { ThinkingBlock } from './ThinkingBlock';
+import { isResearchRunning } from '../../shared/research';
 import type {
   Attachment,
   ChatMessage,
@@ -53,7 +54,10 @@ function isFinalAnswer(session: ResearchSession, message: ChatMessage) {
   const following = session.messages.slice(session.messages.indexOf(message) + 1);
   const nextUser = following.findIndex((item) => item.role === 'user');
   const turn = nextUser < 0 ? following : following.slice(0, nextUser);
-  return turn.length === 0 && (nextUser >= 0 || !['running', 'stopping'].includes(session.status));
+  return (
+    turn.length === 0 &&
+    (nextUser >= 0 || (!isResearchRunning(session) && session.status !== 'stopping'))
+  );
 }
 
 function UserMessage({
@@ -252,7 +256,7 @@ export function Conversation({
       <Composer
         sessionId={s.id}
         key={s.id}
-        status={s.status}
+        status={isResearchRunning(s) ? 'running' : s.status}
         connected={connected}
         suggestion={suggestion}
         quote={quote}
@@ -503,7 +507,7 @@ export function Conversation({
                     </article>
                   ) : null,
                 )}
-                {s.status === 'running' && !s.question && (
+                {isResearchRunning(s) && !s.question && (
                   <div className="agent-pending" role="status" aria-label="正在继续研究">
                     <span className="agent-breathing-dot" />
                   </div>

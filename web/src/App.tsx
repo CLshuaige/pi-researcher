@@ -24,6 +24,7 @@ import { ResearchControls } from './components/ResearchControls';
 import { GlobalSettingsPanel } from './components/GlobalSettingsPanel';
 import { Logo } from './components/Logo';
 import type { ResearchSession, SessionSummary, ModelOption } from '../shared/types';
+import { isResearchRunning } from '../shared/research';
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -38,7 +39,7 @@ export default function App() {
     'profile',
   );
   const [profile, setProfile] = useState({ name: '研究者', avatar: '' });
-  const [flowRatio, setFlowRatio] = useState(0.42);
+  const [flowRatio, setFlowRatio] = useState(0.52);
   const [showSettings, setShowSettings] = useState(false);
   const [inspectorView, setInspectorView] = useState<'research' | 'preview'>('research');
   const [previewTabs, setPreviewTabs] = useState<PreviewTab[]>([]);
@@ -573,10 +574,11 @@ export default function App() {
               {showFlow && (
                 <Workflow
                   key={`workflow-${session.id}`}
-                  running={session.status === 'running'}
+                  running={isResearchRunning(session)}
                   artifacts={session.artifacts}
                   onPreviewFile={openPreviewFile}
                   workflow={session.workflow}
+                  messages={session.messages}
                   onClose={() => setShowFlow(false)}
                 />
               )}

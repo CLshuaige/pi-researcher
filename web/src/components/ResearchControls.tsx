@@ -3,6 +3,7 @@ import { Progress } from '@animate-ui/react/primitives/radix-ui/progress';
 import { Info } from 'lucide-react';
 import { Popover } from '@animate-ui/react/primitives/radix-ui/popover';
 import type { ResearchSession } from '../../shared/types';
+import { isResearchRunning } from '../../shared/research';
 
 export function ResearchControls({ session }: { session: ResearchSession }) {
   const control = session.workflow.control;
@@ -15,7 +16,7 @@ export function ResearchControls({ session }: { session: ResearchSession }) {
   };
   const label = session.question
     ? '等待你的回复'
-    : session.status === 'running'
+    : isResearchRunning(session)
       ? '研究进行中'
       : session.status === 'stopping'
         ? '正在停止'
