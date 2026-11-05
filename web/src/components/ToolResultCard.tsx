@@ -43,7 +43,7 @@ export function ToolResultCard({
               {
                 running: '运行中',
                 completed: '已结束',
-                failed: '执行失败',
+                failed: '需要关注',
                 cancelled: '已停止',
                 pending: '等待中',
               }[message.status || 'pending']
@@ -71,11 +71,13 @@ export function ToolResultCard({
           </div>
         )}
         <div className="tool-result-content">{children}</div>
-        {message.args && Object.keys(message.args).length > 0 && (
-          <Disclosure className="tool-parameters" title="调用参数" defaultOpen={false}>
-            <ToolCode>{JSON.stringify(message.args, null, 2)}</ToolCode>
-          </Disclosure>
-        )}
+        {message.args &&
+          Object.keys(message.args).length > 0 &&
+          message.name !== 'research_checklist' && (
+            <Disclosure className="tool-parameters" title="调用参数" defaultOpen={false}>
+              <ToolCode>{JSON.stringify(message.args, null, 2)}</ToolCode>
+            </Disclosure>
+          )}
       </div>
     </div>
   );

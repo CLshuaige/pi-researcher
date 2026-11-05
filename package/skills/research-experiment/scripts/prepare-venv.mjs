@@ -100,9 +100,7 @@ try {
     const source = "https://bootstrap.pypa.io/get-pip.py";
     let script;
     try {
-      const response = await fetch(source, {
-        signal: AbortSignal.timeout(30000),
-      });
+      const response = await fetch(source);
       if (!response.ok)
         throw new Error(`pip bootstrap download failed (${response.status})`);
       script = Buffer.from(await response.arrayBuffer());
@@ -115,13 +113,9 @@ try {
           "--location",
           "--silent",
           "--show-error",
-          "--connect-timeout",
-          "10",
-          "--max-time",
-          "30",
           source,
         ],
-        { cwd: project, env, timeout: 35000, maxBuffer: 8 * 1024 * 1024 },
+        { cwd: project, env, maxBuffer: 8 * 1024 * 1024 },
       );
       if (result.error || result.status !== 0)
         throw new Error(

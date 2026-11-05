@@ -45,6 +45,12 @@ const components: Components = {
   ),
   img: ({ alt }) => <span className="image-reference">[图片：{alt || '请下载查看'}]</span>,
   span: RevealSpan,
+  // A natural-height wrapper avoids the library's capped table overflowing into following text.
+  table: ({ children }) => (
+    <div className="markdown-table-scroll">
+      <table>{children}</table>
+    </div>
+  ),
 };
 const motionQuery = '(prefers-reduced-motion: reduce)';
 const motionSnapshot = () => window.matchMedia(motionQuery).matches;

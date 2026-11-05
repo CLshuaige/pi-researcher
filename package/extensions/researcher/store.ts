@@ -5,7 +5,7 @@ import type { JobExit, JobRecord, ResearchConfig, TaskRecord } from "./types.ts"
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const DEFAULT_CONFIG: ResearchConfig = {
-  maxConcurrent: 2, timeoutMs: 900_000, maxTurns: 30,
+  maxConcurrent: 2, timeoutMs: 0, maxTurns: 0,
   childExtensions: [], extraTools: [], reviewerTools: [], enableMcp: false,
 };
 export const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -82,7 +82,7 @@ export function readConfig(root: string, agentDir = getAgentDir()): ResearchConf
   };
   // Project arrays replace global arrays, so [] explicitly disables inherited tools.
   const config = { ...DEFAULT_CONFIG, ...readLayer(join(agentDir, "research.json"), agentDir), ...readLayer(path, root) } as ResearchConfig;
-  for (const [key, min, max] of [["maxConcurrent", 1, 8], ["timeoutMs", 1000, 86_400_000], ["maxTurns", 1, 1000]] as const) {
+  for (const [key, min, max] of [["maxConcurrent", 1, 8], ["timeoutMs", 0, 86_400_000], ["maxTurns", 0, 1000]] as const) {
     if (!Number.isInteger(config[key]) || config[key] < min || config[key] > max) throw new Error(`Invalid ${key}: expected ${min}..${max}`);
   }
   for (const key of ["childExtensions", "extraTools", "reviewerTools"] as const) {

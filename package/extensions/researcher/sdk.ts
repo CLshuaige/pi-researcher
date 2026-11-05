@@ -41,7 +41,7 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
       models: [model],
       streamSimple: (_model, context, streamOptions) => {
         options.signal.throwIfAborted();
-        if (++requests > options.maxTurns) throw new Error(`Model request budget exhausted (${options.maxTurns})`);
+        if (++requests > options.maxTurns && options.maxTurns > 0) throw new Error(`Model request budget exhausted (${options.maxTurns})`);
         // Child auth may materialize the placeholder in headers/env as well as apiKey.
         // Resolve the entire auth envelope again in the host, including custom headers.
         const { apiKey: _key, headers: _headers, env: _env, ...requestOptions } = streamOptions ?? {};
@@ -53,7 +53,7 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
     });
   };
   const settings = SettingsManager.inMemory({
-    packages: [], extensions: [], skills: [], retry: { enabled: false },
+    packages: [], extensions: [], skills: [], httpIdleTimeoutMs: 0, retry: { enabled: false },
     compaction: { enabled: true },
   });
   const loader = new DefaultResourceLoader({

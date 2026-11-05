@@ -11,6 +11,15 @@ npm --prefix web run dev
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite serves the UI and proxies `/api` to port 3001. The development launcher starts and shuts down both processes.
 
+Copy `.env.example` to `.env` and set your own ports so you never attach to a teammate's instance:
+
+```sh
+cp .env.example .env
+# edit .env: API_PORT (backend), VITE_DEV_PORT (frontend), VITE_DEV_API (proxy target)
+```
+
+`npm run dev` reads the repository-root `.env`; shell-exported variables still take precedence.
+
 For an isolated test environment:
 
 ```sh

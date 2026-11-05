@@ -26,7 +26,7 @@ export class SessionStore {
           readFileSync(join(dataDir, 'sessions', name), 'utf8'),
         ) as StoredSession;
         if (!/^[a-zA-Z0-9-]+$/.test(session.id)) continue;
-        if (session.status === 'running' || session.status === 'stopping') {
+        if (session.status === 'running' || session.status === 'waiting' || session.status === 'stopping') {
           session.status = 'interrupted';
           session.notice = '上次运行已中断，可以发送消息继续研究。';
           for (const m of session.messages) {
@@ -38,6 +38,12 @@ export class SessionStore {
           delete session.error;
           session.notice = '研究已暂停，可发送消息继续。';
         }
+        for (const m of session.messages) {
+          if (m.retryStatus === 'running') {
+            m.retryStatus = 'cancelled';
+            m.retryError = '重试已中断，可再次重试。';
+          }
+        }
         for (const m of session.messages)
           if (m.thinkingStatus === 'running')
             m.thinkingStatus =
@@ -46,21 +52,39 @@ export class SessionStore {
                 : m.status === 'cancelled'
                   ? 'cancelled'
                   : 'completed';
+        session.phase ??=
+          session.mode === 'demo' || session.messages.some((m) => m.role === 'user')
+            ? 'started'
+            : 'draft';
         this.sessions.set(session.id, session);
       } catch {
         console.warn(`跳过损坏的会话文件：${name}`);
       }
     }
   }
+  /** One editable draft per local single-user store; old records and files remain recoverable. */
+  draft(): StoredSession {
+    const drafts = [...this.sessions.values()]
+      .filter((s) => s.mode === 'pi' && s.phase === 'draft')
+      .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    const selected = drafts[0];
+    for (const old of drafts.slice(1)) {
+      old.phase = 'archived';
+      this.save(old);
+    }
+    return selected || this.create();
+  }
   get(id: string) {
     const session = this.sessions.get(id);
-    if (!session) throw Object.assign(new Error('会话不存在'), { status: 404 });
+    if (!session || session.phase === 'archived')
+      throw Object.assign(new Error('会话不存在'), { status: 404 });
     return session;
   }
   create(mode: 'pi' | 'demo' = 'pi', id: string = randomUUID()): StoredSession {
     const now = Date.now();
     const session: StoredSession = {
       id,
+      phase: mode === 'demo' ? 'started' : 'draft',
       title: '新研究',
       createdAt: now,
       updatedAt: now,
@@ -86,6 +110,7 @@ export class SessionStore {
   }
   list(): SessionSummary[] {
     return [...this.sessions.values()]
+      .filter((s) => s.phase === 'started')
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map(({ id, title, updatedAt, mode, status }) => ({ id, title, updatedAt, mode, status }));
   }
@@ -95,6 +120,7 @@ export class SessionStore {
   }
   workspace(id: string) {
     const s = this.get(id);
+    if (s.phase === 'draft' && !s.workspaceDir) return join(this.dataDir, 'drafts', id);
     // New-style workspace: <root>/workspace/<workspaceDir>
     if (s.workspaceDir && this.root) return join(this.workspacesRoot, s.workspaceDir);
     // Legacy fallback for sessions created before the migration

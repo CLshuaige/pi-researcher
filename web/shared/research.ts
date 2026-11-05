@@ -3,6 +3,7 @@ import type { ResearchSession } from './types';
 export function isResearchRunning(session: Pick<ResearchSession, 'status' | 'workflow'>): boolean {
   return (
     session.status === 'running' ||
+    session.status === 'waiting' ||
     (session.status === 'idle' && session.workflow.control?.state === 'waiting')
   );
 }

@@ -1,8 +1,9 @@
 import { open, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { ChatMessage, StepStatus } from '../shared/types.ts';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { ChatMessage, StepStatus, SubSession } from '../shared/types.ts';
 import type { StoredSession } from './store.ts';
 import { thinkingText } from './thinking.ts';
+import { flattenFiles } from './files.ts';
 
 function object(value: unknown): Record<string, any> {
   return value && typeof value === 'object' ? (value as Record<string, any>) : {};
@@ -23,8 +24,8 @@ export function childStatus(
   error = false,
 ): StepStatus {
   if (error || ['failed', 'timed_out', 'blocked', 'error'].includes(outcome || '')) return 'failed';
-  if (['cancelled', 'interrupted', 'aborted'].includes(outcome || '')) return 'cancelled';
-  if (['completed', 'done', 'succeeded', 'success'].includes(outcome || '')) return 'completed';
+  if (['cancelled', 'interrupted', 'aborted', 'paused', 'stopped'].includes(outcome || '')) return 'cancelled';
+  if (['complete', 'completed', 'done', 'succeeded', 'success'].includes(outcome || '')) return 'completed';
   if (['pending', 'queued', 'partial'].includes(outcome || '')) return 'pending';
   return finished ? 'completed' : 'running';
 }
@@ -90,6 +91,9 @@ export function beginSubSessions(
   name: string,
   args: Record<string, unknown>,
 ) {
+  // Discovery/control calls do not launch child sessions.
+  if (name === 'subagent' && args.action && !['resume', 'start'].includes(String(args.action)))
+    return;
   const tasks = Array.isArray(args.tasks)
     ? args.tasks
     : Array.isArray(args.chain)
@@ -124,6 +128,16 @@ export function updateSubSessions(
   const group = session.subSessions.filter((s) => s.toolCallId === callId);
   const results = Array.isArray(details.results) ? details.results : [details];
   for (const [index, child] of group.entries()) {
+    // An async launch receipt has no completed child results yet.
+    if (!error && typeof details.asyncId === 'string' && typeof details.asyncDir === 'string') {
+      child.asyncRunId = details.asyncId;
+      child.asyncDir = details.asyncDir;
+      child.status = 'running';
+      child.outcome = 'running';
+      child.progress = text(result);
+      delete child.endedAt;
+      continue;
+    }
     if (Array.isArray(details.results) && !results[index]) {
       if (finished) {
         child.status = error ? 'cancelled' : 'pending';
@@ -196,8 +210,48 @@ async function sessionEntries(workspace: string, path: string): Promise<unknown[
 }
 /** Read existing child records only; never start or prompt a Pi session. */
 export async function refreshSubSessions(session: StoredSession, workspace: string) {
+  // The host already scans visible workspace files on each refresh. Reuse that
+  // snapshot rather than waiting for the child's final handoff artifact list.
+  const files = flattenFiles(session.artifacts || []);
+  session.subSessions = session.subSessions.filter((child) => {
+    const parent = session.messages?.find((message) => message.id === child.toolCallId);
+    return !(
+      parent?.name === 'subagent' &&
+      parent.args?.action &&
+      !['resume', 'start'].includes(String(parent.args.action))
+    );
+  });
   for (const child of session.subSessions) {
+    let outputDir: string | undefined;
     try {
+      if (child.kind === 'subagent' && child.asyncRunId && child.asyncDir) {
+        // Read only the directory supplied by this tool's launch receipt.
+        const directory = await realpath(child.asyncDir);
+        if (basename(directory) !== child.asyncRunId) throw new Error('Async run directory mismatch');
+        const record = JSON.parse(await readFile(await internalPath(directory, 'status.json'), 'utf8'));
+        if (record.runId !== child.asyncRunId) throw new Error('Async run identity mismatch');
+        child.status = childStatus(record.state);
+        child.outcome = record.timedOut ? 'timed_out' : record.state;
+        if (record.error) child.summary = String(record.error);
+        const recent = record.steps?.flatMap((step: { recentOutput?: string[] }) => step.recentOutput || []);
+        if (recent?.length) child.progress = recent.join('\n').slice(-1200);
+        if (record.startedAt) child.startedAt = Number(record.startedAt) || child.startedAt;
+        if (child.status !== 'running' && child.status !== 'pending') child.endedAt = Number(record.endedAt || record.finishedAt || record.lastUpdate) || Date.now();
+        // Live runner transcripts are stored on steps; the top-level sessionFile
+        // is not normally present on an asynchronous launch status record.
+        const paths = [...new Set<string>([
+          record.sessionFile,
+          ...(record.steps || []).map((step: { sessionFile?: string }) => step.sessionFile),
+        ].filter((path): path is string => typeof path === 'string'))];
+        const messages: ChatMessage[] = [];
+        for (const [index, path] of paths.entries()) {
+          try {
+            const transcriptRoot = session.sessionFile ? dirname(session.sessionFile) : directory;
+            messages.push(...childMessages(await sessionEntries(transcriptRoot, path), `${child.id}-${index}`));
+          } catch { /* Progress is still available from the verified status record. */ }
+        }
+        if (messages.length) child.messages = messages.slice(-160);
+      }
       if (child.kind === 'delegate' && child.taskId && /^T-[a-f0-9-]{36}$/.test(child.taskId)) {
         const record = JSON.parse(
           await readFile(
@@ -208,19 +262,20 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
         child.status = childStatus(record.status);
         child.outcome = record.status;
         child.summary = record.result?.summary || record.error;
-        child.artifacts = record.result?.artifacts || [];
+        child.artifacts = record.result?.artifacts || child.artifacts || [];
+        outputDir = record.outputDir;
         child.sessionFile = record.sessionFile;
         child.startedAt = Date.parse(record.startedAt) || child.startedAt;
         if (record.finishedAt) child.endedAt = Date.parse(record.finishedAt);
       }
-      if (child.sessionFile) {
+      if (child.sessionFile && !child.asyncRunId) {
         const messages = childMessages(
           await sessionEntries(workspace, child.sessionFile),
           child.id,
         );
         if (messages.length) child.messages = messages;
       }
-      if (child.status !== 'running')
+      if (child.status !== 'running' && child.status !== 'pending')
         for (const message of child.messages)
           if (message.status === 'running')
             message.status =
@@ -232,5 +287,25 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
     } catch {
       /* A live record or session may not have been written yet. */
     }
+    child.artifacts = liveArtifacts(child, workspace, files.map(file => file.path), outputDir);
   }
+}
+
+function liveArtifacts(child: SubSession, workspace: string, files: string[], outputDir?: string) {
+  const relativePath = (path: string) => relative(resolve(workspace), resolve(workspace, path)).split(sep).join('/');
+  const candidates = new Set((child.artifacts || []).map(relativePath));
+  for (const message of child.messages) {
+    if (message.role === 'tool' && message.status === 'completed' &&
+        (message.name === 'write' || message.name === 'edit') && typeof message.args?.path === 'string')
+      candidates.add(relativePath(message.args.path));
+  }
+  const roots: string[] = outputDir ? [relativePath(outputDir)] : [];
+  const skills = child.skill?.split(/[、,]/) || [];
+  if (skills.some(skill => /(?:^|[:/])research-literature$/.test(skill.trim())))
+    roots.push('literature.md', 'literature-review.pdf', 'literature', 'research/literature.md', 'research/literature');
+  if (skills.some(skill => /(?:^|[:/])research-experiment$/.test(skill.trim())))
+    roots.push('experiment', 'result.md');
+  // Only advertise existing, previewable files from the workspace scan. Reads,
+  // internal logs, credentials and virtual environments are not deliverables.
+  return files.filter(path => candidates.has(path) || roots.some(root => path === root || path.startsWith(root + '/')));
 }

@@ -96,13 +96,13 @@ export default function researcherExtension(pi: ExtensionAPI) {
         if (command === "stop" && value) { runner.stop(value); ctx.ui.notify("取消请求已发送；等待任务进入终态后再续接。", "info"); return; }
         if (command === "init") { store.initialize(value); ctx.ui.notify("研究工作区已初始化；已有文件保持原样。", "info"); return; }
         if (["pause", "stop"].includes(command)) { const cleanup = controller.pause("User " + command, command === "stop" ? "stopped" : "paused"); await ctx.abort(); await cleanup; return; }
-        const instruction = command === "--" ? args.trim().slice(2).trim() : command === "resume" ? "" : args.trim();
+        const instruction = command === "--" ? args.trim().slice(2).trim() : ["resume", "--retry"].includes(command) ? "" : args.trim();
         if (!store.initialized()) {
           if (!instruction) throw new Error("Supply a research objective");
           store.initialize(instruction);
         }
         if (await controller.receive(instruction, ctx, true) !== 'accepted') return;
-        pi.sendUserMessage(instruction || "Resume research from checklist; inspect prior results first.", { deliverAs: "followUp" });
+        pi.sendUserMessage(command === "--retry" ? args.trim().slice(7).trim() : instruction || "Resume research from checklist; inspect prior results first.", { deliverAs: "followUp" });
       } catch (error) { ctx.ui.notify(String(error), "error"); }
     },
   };

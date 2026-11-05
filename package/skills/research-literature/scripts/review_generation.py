@@ -316,7 +316,7 @@ def main() -> int:
             command.add_argument("--force", action="store_true")
         elif name == "compile":
             command.add_argument("--engine", choices=("xelatex", "lualatex"), default="xelatex")
-            command.add_argument("--timeout", type=int, default=120)
+            command.add_argument("--timeout", type=int, default=0)
     args = parser.parse_args()
     try:
         root = root_path(args.root)

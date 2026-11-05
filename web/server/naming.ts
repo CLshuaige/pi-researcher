@@ -89,7 +89,7 @@ export async function generateProjectName(
         temperature: 0.3,
         ...(resolved.disableThinking ? { thinking: { type: 'disabled' } } : {}),
       }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(20000),
     });
     if (!response.ok) return fail(`http-${response.status}`);
     const data = await response.json();
@@ -124,7 +124,7 @@ export function workspaceDirName(projectName: string, date = new Date()): string
   return `${beijingTimestamp(date)}_${projectName}`;
 }
 
-/** Keep an explicit short topic; do not turn a truncated instruction into a title. */
+/** Keep short topics; retain a recognizable request label when model naming fails. */
 export function fallbackProjectName(question: string): string {
   const named = question.match(/\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+s?\b/);
   if (named && named[0].length <= 10) return named[0].replace(/s$/, '') + '研究';
@@ -137,5 +137,10 @@ export function fallbackProjectName(question: string): string {
     /^[\p{L}\p{N}-]+$/u.test(topic) &&
     !/如何|为什么|请|帮我|任务是/.test(topic)
     ? topic
-    : '未命名研究';
+    : topic
+        .replace(/^(?:请帮我|帮我|请|麻烦|希望|我想|想要|需要)\s*/g, '')
+        .replace(/^(?:对|针对|关于)\s*/, '')
+        .split(/[。！？!?\n]/, 1)[0]
+        .replace(/[^\p{L}\p{N}-]/gu, '')
+        .slice(0, 12) || '附件研究';
 }

@@ -57,7 +57,7 @@ report/
 
 `running_title` 是短页眉。默认 `Research Report` 避免原模板对 CJK 字形高度的严格检测导致页眉被隐藏；可按需要提供合适的短标题并检查 PDF。正文标题和其他报告内容仍默认中文。
 
-真实作者按 `{"name":"姓名","affiliation":"单位","email":"真实通讯邮箱（可省略）"}` 填入 `authors`；同单位自动合并脚注，有邮箱的作者列入通讯作者。缺少作者、单位或邮箱会显示相应信息未提供，不填虚构 Research Team 或 example.com 邮箱。
+真实作者按 `{"name":"姓名","affiliation":"单位","email":"真实通讯邮箱（可省略）"}` 填入 `authors`；同单位自动合并脚注，有邮箱的作者列入通讯作者。缺少作者、单位或邮箱时，中文报告默认署名 **格悟**，英文报告默认署名 **Gewu**，不填虚构 Research Team 或 example.com 邮箱。
 
 章节顺序就是 `sections` 的数组顺序；`id` 为唯一正整数，文件必须是唯一的 `sections/*.tex`。文件路径使用不含空格的 ASCII 字符，只允许字母、数字、`_./-`，不能绝对路径、`..` 或通过符号链接逃出报告目录。标题可以是中文。章节不加顶层 section、包声明、文档、摘要或参考文献环境；子标题可以使用 subsection/subsubsection。
 
@@ -93,7 +93,7 @@ report/
 ```bash
 python3 <skill-dir>/scripts/report_generation.py render --manifest report/report.json --output report
 python3 <skill-dir>/scripts/report_generation.py check --output report
-python3 <skill-dir>/scripts/report_generation.py compile --output report --timeout 120
+python3 <skill-dir>/scripts/report_generation.py compile --output report
 ```
 
 `render` 先检查所有输入及输出冲突，再写文件。已有同内容文件可重用；对改变的生成文件，先确认更新范围，再加 `--force`。有手工编辑的 main.tex 时应先检查或保留副本，避免丢失改动。`--force` 不绕过路径或内容校验。

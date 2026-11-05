@@ -11,7 +11,17 @@ import {
   type Node,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { Check, Maximize2, Minimize2, Minus, Plus, Scan, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Maximize2,
+  Minimize2,
+  Minus,
+  Plus,
+  Scan,
+  X,
+} from 'lucide-react';
 import type {
   Workflow as WorkflowData,
   WorkflowNode,
@@ -25,25 +35,54 @@ const STAGE_WIDTH = 280;
 const STAGE_HEIGHT = 152;
 const STAGE_GAP = 72;
 const RESOURCE_GAP = 28;
+
 function Stage({ data }: NodeProps<StageNode>) {
+  const expanded = !!data.expanded;
+  const done = data.status === 'completed';
+  const failed = data.status === 'failed' || data.status === 'cancelled';
   return (
     <div
-      className="flow-node"
+      className={`flow-node nodrag${expanded ? ' expanded' : ''}`}
       data-status={data.status}
       data-optional={!!data.optional}
       aria-label={`${data.label}，${{ pending: '等待中', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[data.status]}`}
     >
       <Handle type="target" position={Position.Left} id="left" />
-      <span className="node-dot">{data.status === 'completed' && <Check size={9} />}</span>
-      <strong>{data.label}</strong>
-      <p title={data.description}>{data.description}</p>
-      {data.statusLabel && <small>{data.statusLabel}</small>}
-      {!!data.criteria?.length && (
-        <small title={data.criteria.join('\n')}>
-          验收条件 {data.criteria.length} 项，证据 {data.evidence?.length || 0} 项
-        </small>
+      <span className="node-dot">{done && <Check size={9} />}</span>
+      <div className="node-header">
+        <strong>{data.label}</strong>
+        <button
+          className="node-expand"
+          aria-label={expanded ? '收起详情' : '展开详情'}
+          onClick={() => (data.onToggleExpand as () => void)?.()}
+        >
+          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        </button>
+      </div>
+      <p className="node-desc" title={data.description}>
+        {data.description}
+      </p>
+      {expanded && (
+        <div className="node-detail">
+          {!!data.criteria?.length && (
+            <div className="node-section">
+              <span className="node-section-title">验收条件</span>
+              <ul className="node-criteria-list">
+                {data.criteria.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {data.reason && (
+            <div className="node-section">
+              <span className="node-section-title">{failed ? '阻塞原因' : '说明'}</span>
+              <p className="node-reason">{data.reason}</p>
+            </div>
+          )}
+        </div>
       )}
-      {data.reason && (
+      {!expanded && data.reason && (
         <p className="node-reason" title={data.reason}>
           {data.reason}
         </p>
@@ -72,33 +111,47 @@ function FlowCanvas({
 }) {
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNode> | null>(null);
   const element = useRef<HTMLDivElement>(null);
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const handleInit = (inst: ReactFlowInstance<FlowNode>) => {
     setInstance(inst);
     onInit?.(inst);
+  };
+  const toggleExpand = (id: string) => {
+    setExpandedNodes((old) => {
+      const next = new Set(old);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
   const nodes: FlowNode[] = useMemo(() => {
     const result: FlowNode[] = [];
     for (const [index, node] of workflow.nodes.entries()) {
       const x = 20 + index * (STAGE_WIDTH + STAGE_GAP);
       const resources = resourcesForStage(node, artifacts);
+      const isExpanded = expandedNodes.has(node.id);
       result.push({
         id: node.id,
         type: 'stage',
         position: { x, y: 0 },
-        style: { width: STAGE_WIDTH, height: STAGE_HEIGHT },
-        data: { ...node },
+        style: { width: STAGE_WIDTH, minHeight: STAGE_HEIGHT },
+        data: { ...node, expanded: isExpanded, onToggleExpand: () => toggleExpand(node.id) },
       });
       if (resources.length)
         result.push({
           id: `resources-${node.id}`,
           type: 'resources',
-          style: { pointerEvents: 'all', width: STAGE_WIDTH },
+          style: {
+            pointerEvents: 'all',
+            width: STAGE_WIDTH,
+            display: isExpanded ? 'none' : undefined,
+          },
           position: { x, y: STAGE_HEIGHT + RESOURCE_GAP },
           data: { stageId: node.id, resources, onPreview: onPreviewFile },
         });
     }
     return result;
-  }, [workflow, artifacts, onPreviewFile]);
+  }, [workflow, artifacts, onPreviewFile, expandedNodes]);
   const edges = useMemo(
     () => [
       ...workflow.edges.map((e, i) => {

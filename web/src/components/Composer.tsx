@@ -1,10 +1,8 @@
 import { Button } from './ui/Button';
 import { FileIcon } from './FileIcon';
 import { api } from '../api';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pause, Square, Plus, X, LoaderCircle, Quote, Shield, ShieldCheck } from 'lucide-react';
-import MDEditor from '@uiw/react-md-editor';
-import '@uiw/react-md-editor/markdown-editor.css';
 import type {
   Attachment,
   MessageQuote,
@@ -16,8 +14,11 @@ import { ModelSelector } from './ModelSelector';
 
 export function Composer({
   sessionId,
+  draft = false,
+  initialFiles = [],
   status,
   connected,
+  focusRequest = 0,
   suggestion,
   quote,
   quotes,
@@ -34,10 +35,14 @@ export function Composer({
   onModelChange,
   onThinkingLevelChange,
   onOpenSettings,
+  onPreviewFile,
 }: {
   sessionId: string;
+  draft?: boolean;
+  initialFiles?: Attachment[];
   status: RunStatus;
   connected: boolean;
+  focusRequest?: number;
   suggestion?: { text: string; key: number };
   quote?: MessageQuote;
   quotes?: MessageQuote[];
@@ -59,9 +64,31 @@ export function Composer({
   onModelChange?: (model: string) => void;
   onThinkingLevelChange?: (level: ThinkingLevel) => void;
   onOpenSettings?: () => void;
+  onPreviewFile?: (path: string, name: string) => void;
 }) {
-  const [text, setText] = useState('');
-  const [files, setFiles] = useState<Attachment[]>([]);
+  // Keep the one draft locally while switching history or refreshing.
+  const [savedDraft] = useState<{ text: string; files: Attachment[] }>(() => {
+    if (draft) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`gewu-draft-${sessionId}`) || 'null');
+        if (saved) return saved;
+      } catch {}
+    }
+    return { text: '', files: initialFiles };
+  });
+  const [text, setText] = useState(savedDraft.text);
+  const [files, setFiles] = useState<Attachment[]>(savedDraft.files);
+  useEffect(() => {
+    if (!draft) {
+      try {
+        localStorage.removeItem(`gewu-draft-${sessionId}`);
+      } catch {}
+      return;
+    }
+    try {
+      localStorage.setItem(`gewu-draft-${sessionId}`, JSON.stringify({ text, files }));
+    } catch {}
+  }, [draft, sessionId, text, files]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [autoMode, setAutoMode] = useState(true);
@@ -91,11 +118,11 @@ export function Composer({
     setModeSaving(true);
     try {
       const result = await api.getConfig(sessionId, 'research-modules');
-      await api.putConfig(sessionId, 'research-modules', {
-        ...result.value,
+      const saved = await api.patchConfig(sessionId, 'research-modules', {
         interactionMode: result.value.interactionMode === 'auto' ? 'review' : 'auto',
       });
-      setAutoMode(result.value.interactionMode !== 'auto');
+      setAutoMode(saved.value.interactionMode === 'auto');
+      window.dispatchEvent(new Event('research-config-changed'));
     } catch (error) {
       reportError((error as Error).message);
     } finally {
@@ -104,10 +131,44 @@ export function Composer({
   }
   const fileInput = useRef<HTMLInputElement>(null);
   const editorRoot = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const appliedFocus = useRef(0);
+  useLayoutEffect(() => {
+    if (focusRequest <= appliedFocus.current || busy || uploading || !connected) return;
+    appliedFocus.current = focusRequest;
+    if (
+      document.activeElement === document.body ||
+      editorRoot.current?.contains(document.activeElement)
+    )
+      input.current?.focus();
+  }, [focusRequest, busy, uploading, connected]);
+  const composing = useRef(false);
+  const submitting = useRef(false);
+  const resizeInput = useCallback(() => {
+    const field = input.current;
+    if (!field) return;
+    const scrollTop = field.scrollTop;
+    field.style.height = '0px';
+    if (field.value) field.style.height = `${field.scrollHeight}px`;
+    field.scrollTop = scrollTop;
+  }, []);
+  useLayoutEffect(resizeInput, [text, resizeInput]);
   useEffect(() => {
-    if (quote || quotes?.length) editorRoot.current?.querySelector('textarea')?.focus();
+    const field = input.current;
+    if (!field) return;
+    let width = field.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (width === field.clientWidth) return;
+      width = field.clientWidth;
+      resizeInput();
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [resizeInput]);
+  useEffect(() => {
+    if (quote || quotes?.length) input.current?.focus();
   }, [quote, quotes]);
-  const running = status === 'running' || status === 'stopping';
+  const running = status === 'running' || status === 'waiting' || status === 'stopping';
   const hasInput = !!text.trim() || !!files.length;
   const stopMode = running && !hasInput;
   const hasAttachments = files.length > 0;
@@ -121,7 +182,8 @@ export function Composer({
   }, [suggestion]);
 
   async function submit() {
-    if (busy || uploading || !connected || status === 'stopping') return;
+    if (submitting.current || uploading || !connected || status === 'stopping') return;
+    submitting.current = true;
     setBusy(true);
     try {
       if (stopMode) await onStop();
@@ -135,6 +197,7 @@ export function Composer({
     } catch (error) {
       reportError((error as Error).message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -154,6 +217,15 @@ export function Composer({
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  }
+
+  async function removeFile(file: Attachment) {
+    setFiles((old) => old.filter((f) => f.id !== file.id));
+    try {
+      await api.deleteFile(sessionId, file.path);
+    } catch {
+      // 文件可能已随消息发送或不存在；仅从前端列表移除即可
     }
   }
 
@@ -209,15 +281,22 @@ export function Composer({
                 {files.map((file) => {
                   return (
                     <span key={file.id} className="floating-file-chip">
-                      <FileIcon name={file.name} size={18} />
-                      <span>{file.name}</span>
+                      <button
+                        type="button"
+                        className="floating-file-name"
+                        title={`预览 ${file.name}`}
+                        onClick={() => onPreviewFile?.(file.path, file.name)}
+                      >
+                        <FileIcon name={file.name} size={18} />
+                        <span>{file.name}</span>
+                      </button>
                       <button
                         type="button"
                         className="floating-remove"
                         aria-label={`移除附件 ${file.name}`}
-                        onClick={() => setFiles((old) => old.filter((f) => f.id !== file.id))}
+                        onClick={() => removeFile(file)}
                       >
-                        <X size={11} />
+                        <X size={13} />
                       </button>
                     </span>
                   );
@@ -229,30 +308,32 @@ export function Composer({
 
         {/* Main composer container */}
         <div className={`composer-container${isMultiline ? ' multiline' : ''}`}>
-          {/* Markdown editor */}
           <div className="composer-editor-wrapper">
-            <MDEditor
+            <textarea
+              ref={input}
+              className="composer-input"
               value={text}
-              onChange={(val) => setText(val || '')}
-              preview="edit"
-              height="auto"
-              visibleDragbar={false}
-              textareaProps={{
-                placeholder: running
-                  ? '补充信息，或修正当前的研究方向'
-                  : '输入消息，或提出你的研究想法',
-                'aria-label': '研究消息',
-                disabled: busy || uploading || !connected,
-                onKeyDown: (e: React.KeyboardEvent) => {
-                  // Enter to send, Shift+Enter for newline.
-                  // MDEditor's own keydown listener handles list continuation.
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    if (hasInput) void submit();
-                  }
-                },
+              rows={1}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={
+                running ? '补充信息，或修正当前的研究方向' : '输入消息，或提出你的研究想法'
+              }
+              aria-label="研究消息"
+              disabled={busy || uploading || !connected}
+              onCompositionStart={() => {
+                composing.current = true;
               }}
-              hideToolbar
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)
+                  return;
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  if (hasInput) void submit();
+                }
+              }}
             />
           </div>
 

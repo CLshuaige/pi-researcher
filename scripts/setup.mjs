@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +8,35 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 19))
   throw new Error("Node.js 22.19 or newer is required.");
+// pi-subagents 0.84.0 has no configuration switch for its implicit run/tool
+// deadlines. Remove only fallback timers; explicit call/agent/config limits win.
+function patchSubagentTimeouts() {
+  for (const location of ['.pi/npm/node_modules/pi-subagents', 'package/node_modules/pi-subagents']) {
+    const directory = join(root, location);
+    if (!existsSync(directory)) continue;
+    const version = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).version;
+    if (version !== '0.84.0') throw new Error(`Review timeout compatibility patch for pi-subagents ${version}`);
+    const bundle = join(directory, 'bundle');
+    let found = 0;
+    for (const name of readdirSync(bundle).filter(name => name.endsWith('.js'))) {
+      const path = join(bundle, name);
+      const source = readFileSync(path, 'utf8');
+      let patched = source;
+      for (const constant of ['DEFAULT_ASYNC_TIMEOUT_MS', 'DEFAULT_FOREGROUND_TIMEOUT_MS', 'DEFAULT_FAST_TOOL_TIMEOUT_MS']) {
+        const pattern = new RegExp(`var ${constant} = (?:30 \\* 60 \\* 1e3|3e5|void 0);`, 'g');
+        patched = patched.replace(pattern, () => { found++; return `var ${constant} = void 0;`; });
+      }
+      patched = patched.replaceAll('Foreground and single async runs use config timeoutMs, else 30m; async composites have no default parent deadline. Alias maxRuntimeMs; must agree.', 'Optional explicit run deadline; no implicit runtime limit. Alias maxRuntimeMs; must agree.')
+        .replaceAll('Per-tool deadline (ms); fast builtins default 5m.', 'Optional explicit per-tool deadline (ms); no implicit tool limit.');
+      if (patched !== source) writeFileSync(path, patched);
+    }
+    if (found !== 3) throw new Error(`Timeout compatibility patch mismatch in ${location}: found ${found}/3 defaults`);
+  }
+}
+if (process.argv.includes('--patch-timeouts')) {
+  patchSubagentTimeouts();
+  process.exit(0);
+}
 const check = process.argv.includes("--check");
 const run = (command, args) => {
   const result = spawnSync(command, args, {
@@ -59,6 +88,7 @@ if (!check) {
       "chromium",
     ]);
 }
+patchSubagentTimeouts();
 for (const dir of ["package", "web"]) {
   if (!existsSync(join(root, dir, "node_modules")))
     throw new Error(`Missing ${dir}/node_modules. Run node scripts/setup.mjs.`);

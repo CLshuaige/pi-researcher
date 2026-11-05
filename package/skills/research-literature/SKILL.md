@@ -13,7 +13,7 @@ description: 检索、筛选并按需精读学术资料，生成 literature.md �
 
 ## 输入与配置
 
-读取用户或调用方提供的目标、输入、完成条件，以及相关的 task.md、method.md 或已有文献资料。使用明确提供的有效配置快照；没有时先运行同包 research-task 的 `scripts/check-settings.mjs`，读取校验后的 `.pi/research-modules.json` 设置，不直接按未经校验的配置执行。工具能力与来源选择见 [检索](references/retrieval.md)。
+读取用户或调用方提供的目标、输入、完成条件，以及相关的 task.md、method.md 或已有文献资料。每次启动、重跑或续跑都使用本次从项目根目录重新读取并校验的配置；调用方提供的快照也必须是本次启动时读取的最新设置，不能沿用历史快照。未提供这样的快照时先运行同包 research-task 的 `scripts/check-settings.mjs`，读取校验后的 `.pi/research-modules.json` 设置，不直接按未经校验的配置执行。工具能力与来源选择见 [检索](references/retrieval.md)。
 
 - `literature.sources` 指定优先使用的学术源；初始学术检索优先传入这些来源，并非其他来源的禁用名单。配置值 `semantic_scholar` 表示 Semantic Scholar，当前 academic_search 工具使用 `semantic`。空数组表示跳过优先源联合检索，仍可按需要从网页、已知论文和 DOI 等线索推进。
 - 可按需要使用 paper_lookup、paper_citations、DOI/arXiv ID 快捷查找和摘要补全扩展覆盖面；记录实际贡献的来源，不声称全部结果只来自优先源。用户另有明确的排除来源、访问或预算限制时再据此收窄，不能假设工具内部的跨源请求已经受限。

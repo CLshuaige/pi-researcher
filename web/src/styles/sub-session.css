@@ -30,8 +30,8 @@
 }
 
 .sub-session-status.failed {
-  background: #fee2e2;
-  color: var(--red);
+  background: transparent;
+  color: #b88922;
 }
 
 .sub-session-empty {
@@ -171,7 +171,7 @@
   background: var(--cobalt);
 }
 .child-timeline [data-status='failed'] .child-event-dot {
-  background: var(--red);
+  background: #b88922;
 }
 .child-log {
   max-height: 400px;
@@ -237,4 +237,11 @@
 
 .sub-session-meta {
   font-variant-numeric: tabular-nums;
+}
+
+.sub-session-light.done {
+  color: var(--green);
+}
+.sub-session-light.attention {
+  color: #b88922;
 }

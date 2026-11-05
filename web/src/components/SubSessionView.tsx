@@ -2,12 +2,12 @@ import { RESEARCH_STAGE_LABELS } from '../../shared/research';
 import { useEffect, useState } from 'react';
 import { Collapsible } from '@animate-ui/react/primitives/radix-ui/collapsible';
 import { Tabs } from '@animate-ui/react/primitives/radix-ui/tabs';
-import { ChevronDown, LoaderCircle, Check, X, Bot, Clock3 } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Circle, Bot, Clock3 } from 'lucide-react';
 import type { SubSession } from '../../shared/types';
 import { Markdown } from './Markdown';
 import { FileIcon } from './FileIcon';
 import { Disclosure } from './ui/animated';
-import { toolTitle } from './ToolStep';
+import { toolTitle, CommandGroup, groupAdjacentCommands } from './ToolStep';
 import { ThinkingBlock } from './ThinkingBlock';
 
 function duration(start: number, end: number) {
@@ -24,7 +24,7 @@ const outcomes: Record<string, string> = {
 const stages = {
   running: '进行中',
   completed: '已完成',
-  failed: '失败',
+  failed: '需要关注',
   cancelled: '已停止',
   pending: '等待中',
 };
@@ -54,9 +54,9 @@ export function SubSessionView({
           {running ? (
             <LoaderCircle size={16} className="spin" />
           ) : sub.status === 'completed' ? (
-            <Check size={16} />
+            <Circle size={9} fill="currentColor" className="sub-session-light done" />
           ) : sub.status === 'failed' ? (
-            <X size={16} />
+            <Circle size={9} fill="currentColor" className="sub-session-light attention" />
           ) : (
             <Bot size={16} />
           )}
@@ -122,8 +122,24 @@ export function SubSessionView({
               aria-label="子任务执行记录"
             >
               {sub.messages.length ? (
-                sub.messages.map((m) =>
-                  m.role === 'tool' ? (
+                groupAdjacentCommands(sub.messages.filter(m =>
+                  m.role === 'tool' || m.text || m.thinking?.trim() || m.thinkingStatus === 'running',
+                )).map(messages => {
+                  const m = messages[0];
+                  return messages.length > 1 ? (
+                    <CommandGroup
+                      key={m.id}
+                      messages={messages}
+                      renderMessage={message => <Disclosure
+                        key={message.id}
+                        title={toolTitle(message)}
+                        className="child-tool"
+                        defaultOpen={false}
+                      >
+                        <pre>{message.text || JSON.stringify(message.args, null, 2)}</pre>
+                      </Disclosure>}
+                    />
+                  ) : m.role === 'tool' ? (
                     <Disclosure
                       key={m.id}
                       title={toolTitle(m)}
@@ -137,8 +153,8 @@ export function SubSessionView({
                       <ThinkingBlock text={m.thinking} status={m.thinkingStatus} />
                       {m.text && <Markdown>{m.text}</Markdown>}
                     </div>
-                  ),
-                )
+                  );
+                })
               ) : (
                 <p className="sub-session-empty">
                   尚无可读取的执行记录，最新进度会显示在“进展”中。
@@ -163,7 +179,7 @@ export function SubSessionView({
                   );
                 })
               ) : (
-                <p className="sub-session-empty">尚未交付文件</p>
+                <p className="sub-session-empty">{running ? '尚未交付文件' : '尚未交付文件'}</p>
               )}
             </Tabs.Content>
           </Tabs.Root>

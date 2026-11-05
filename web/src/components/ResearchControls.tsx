@@ -16,22 +16,24 @@ export function ResearchControls({ session }: { session: ResearchSession }) {
   };
   const label = session.question
     ? '等待你的回复'
-    : isResearchRunning(session)
-      ? '研究进行中'
-      : session.status === 'stopping'
-        ? '正在停止'
-        : session.status === 'interrupted'
-          ? '运行已中断'
-          : control
-            ? controlLabels[control.state]
-            : session.workflow.nodes.length &&
-                session.workflow.nodes.every(
-                  (n) => n.status === 'completed' || n.status === 'cancelled',
-                )
-              ? '本轮已完成'
-              : session.notice?.includes('暂停')
-                ? '研究已暂停'
-                : '等待输入';
+    : session.status === 'waiting'
+      ? '后台任务进行中'
+      : isResearchRunning(session)
+        ? '研究进行中'
+        : session.status === 'stopping'
+          ? '正在停止'
+          : session.status === 'interrupted'
+            ? '运行已中断'
+            : control
+              ? controlLabels[control.state]
+              : session.workflow.nodes.length &&
+                  session.workflow.nodes.every(
+                    (n) => n.status === 'completed' || n.status === 'cancelled',
+                  )
+                ? '本轮已完成'
+                : session.notice?.includes('暂停')
+                  ? '研究已暂停'
+                  : '等待输入';
   const complete = session.workflow.nodes.filter((n) => n.status === 'completed').length;
   const active = session.workflow.nodes.filter((n) => n.status === 'running');
   const children = session.subSessions.filter((s) => s.status === 'running').length;

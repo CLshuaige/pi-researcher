@@ -139,6 +139,7 @@ export default function App() {
     version.current = s.revision;
     setSession(s);
     setSessions((old) => {
+      if (s.phase !== 'started' && s.mode !== 'demo') return old.filter((x) => x.id !== s.id);
       const summary: SessionSummary = {
         id: s.id,
         title: s.title,
@@ -159,28 +160,36 @@ export default function App() {
     setError('');
     setRenaming(false);
     version.current = -1;
+    active.current = id;
     setActiveId(id);
     setConnected(false);
     if (window.innerWidth <= 860) setSidebar(false);
     try {
       localStorage.setItem('gewu-active-session', id);
+      window.history.replaceState(null, '', `/c/${id}`);
     } catch {}
   }
+  // Restore session from URL path on initial load
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/c\/(.+)$/);
+    if (match?.[1] && !active.current) {
+      try {
+        localStorage.setItem('gewu-active-session', match[1]);
+      } catch {}
+      select(match[1]);
+    }
+  }, []);
   useEffect(() => {
     let cancelled = false;
-    api
-      .sessions()
-      .then((list) => {
+    Promise.all([api.sessions(), api.create()])
+      .then(([list, draft]) => {
         if (cancelled) return;
         setSessions(list);
         let stored: string | null = null;
         try {
           stored = localStorage.getItem('gewu-active-session');
         } catch {}
-        const id =
-          stored && list.some((s) => s.id === stored)
-            ? stored
-            : list.find((s) => s.mode === 'pi')?.id || 'demo';
+        const id = stored && list.some((s) => s.id === stored) ? stored : draft.id;
         select(id);
       })
       .catch((error) => !cancelled && reportError(error.message))
@@ -283,12 +292,8 @@ export default function App() {
         await api.putConfig(s.id, 'research-modules', JSON.parse(pending));
         localStorage.removeItem('gewu-pending-research-modules');
       }
-      setSessions((old) => [
-        { id: s.id, title: s.title, updatedAt: s.updatedAt, mode: s.mode, status: s.status },
-        ...old.filter((item) => item.id !== s.id),
-      ]);
-      setSession(undefined);
-      select(s.id);
+      if (active.current !== s.id) select(s.id);
+      else accept(s);
     } catch (error) {
       reportError((error as Error).message);
     } finally {

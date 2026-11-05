@@ -3,12 +3,7 @@
   "interactionMode": "auto",
   "literature": {
     "sources": [
-      "arxiv",
-      "openalex",
-      "semantic_scholar",
-      "crossref",
-      "pubmed",
-      "dblp"
+      "arxiv"
     ],
     "writeReview": false
   },
@@ -17,5 +12,8 @@
   },
   "method": {
     "max_debate_iterations": 5
+  },
+  "experiment": {
+    "max_optimization_iterations": 5
   }
 }

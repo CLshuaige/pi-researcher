@@ -89,9 +89,10 @@
   min-height: 0;
   overflow-y: auto;
   margin-top: 4px;
+  padding: 0 2px;
 }
 .history-group-label {
-  padding: 16px 14px 8px;
+  padding: 16px 16px 8px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -100,7 +101,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 9px 12px;
+  padding: 9px 14px;
   border-radius: var(--radius);
   color: var(--ink-2);
   text-align: left;
@@ -287,13 +288,35 @@
   gap: 8px;
 }
 .history-rename-actions button {
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 16px;
   border-radius: var(--radius);
   font-size: 13px;
+  font-weight: 550;
+  background: var(--panel);
+  color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast),
+    border-color var(--motion-fast);
+}
+.history-rename-actions button:hover {
+  border-color: #cdd7e6;
+  background: var(--panel-soft);
 }
 .history-rename-actions button.primary {
-  background: var(--cobalt);
-  color: white;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: 1px solid var(--primary);
+}
+.history-rename-actions button.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.history-rename-actions button.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .user-menu-wrapper {
   position: absolute;

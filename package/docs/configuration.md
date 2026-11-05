@@ -5,8 +5,8 @@
 ```json
 {
   "maxConcurrent": 2,
-  "timeoutMs": 900000,
-  "maxTurns": 30,
+  "timeoutMs": 0,
+  "maxTurns": 0,
   "childExtensions": [],
   "extraTools": [],
   "reviewerTools": [],
@@ -17,8 +17,8 @@
 | 字段 | 含义 |
 |---|---|
 | `maxConcurrent` | 同一项目的活动 T 子任务与 J 后台任务合计上限，1–8，默认 2；从项目任务记录计算。闭环由项目 Controller 锁保护，不提供通用跨进程原子配额或 GPU 调度。 |
-| `timeoutMs` | 单次委派的总超时，包括实验 engine 的内部工作；1 秒至 24 小时。 |
-| `maxTurns` | 子会话模型请求上限，1–1000；压缩请求也计入。engine 内部有单独请求上限，但受外层总时间约束。 |
+| `timeoutMs` | 单次委派的显式总超时；默认 0，不设置期限。正数单位毫秒，最大 24 小时。 |
+| `maxTurns` | 子会话显式模型请求上限，默认 0，不限制；正数范围 1–1000，压缩请求也计入。 |
 | `childExtensions` | 显式加载的本地扩展路径；相对路径按配置层解析，不自动加载所有用户扩展。 |
 | `extraTools` | 普通子任务额外工具的精确名称；通配符和通用委派工具不接受。 |
 | `reviewerTools` | 纯 `research-review` 子任务额外工具；默认无 Bash、Write、Edit。扩展工具是否只读需由其实现保证。 |
@@ -58,6 +58,6 @@
 
 `/researcher stop`（或 `/research stop`）停止本 runtime 的闭环，取消活动 T/J 和定时器；`/researcher stop T-...` 或 `stop J-...` 只向指定的本 runtime 任务请求取消。其他进程的任务不能凭一个状态文件被当成已停止。进程意外退出后，状态查看会将已确认死亡的 owner/worker 显示为 `interrupted`。T 续接会重新取得任务锁；J 不自动续跑，需核对产物后重新启动。
 
-主闭环的 30 分钟累计活跃时间、100 个模型 turn、20 次自动续跑及无进展阈值目前在 Controller 中固定，不是本配置文件支持的字段。J 单独使用 `timeoutSeconds`，时间唤醒使用 `wakeAfterSeconds`。各层预算、等待与恢复关系见 [框架理解与维护指南](framework-guide.md)。
+主闭环不设置默认活动时间、模型 turn 或自动续跑次数上限；保留无进展检测、明确受阻及用户暂停/停止。J 的 `timeoutSeconds` 默认 0，不设置期限；`wakeAfterSeconds` 只安排唤醒，不终止任务。网页会话默认关闭模型 HTTP 空闲超时；显式配置仍优先。固定版本 pi-subagents 的默认运行与工具期限由 `scripts/setup.mjs --patch-timeouts` 兼容修补移除，安装和网页后端启动时自动应用；升级插件版本需重新审核修补。各层预算、等待与恢复关系见 [框架理解与维护指南](framework-guide.md)。
 
 目录和工具约束是协作边界，不是操作系统沙箱。Bash 和第三方扩展仍有 Pi 进程权限；需要强隔离时在独立容器/用户下运行。第一版不提供 GPU 调度、脱离 TUI 的存活承诺或跨进程并发配额。

@@ -12,6 +12,7 @@ function session(
 
 test('research running status includes waiting jobs regardless of wake time', () => {
   assert.equal(isResearchRunning(session('running')), true);
+  assert.equal(isResearchRunning(session('waiting')), true);
   assert.equal(isResearchRunning(session('idle', { state: 'waiting' })), true);
   assert.equal(
     isResearchRunning(session('idle', { state: 'waiting', wakeAt: Date.now() - 60_000 })),

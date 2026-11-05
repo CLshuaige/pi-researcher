@@ -1,7 +1,7 @@
 {
   "maxConcurrent": 2,
-  "timeoutMs": 900000,
-  "maxTurns": 30,
+  "timeoutMs": 0,
+  "maxTurns": 0,
   "childExtensions": [],
   "extraTools": [],
   "reviewerTools": [],

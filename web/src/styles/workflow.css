@@ -432,3 +432,117 @@
     animation: none;
   }
 }
+
+
+/* ── Stage node rich content ──────────────────────────────────── */
+.flow-node .node-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+.flow-node .node-header strong {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+.node-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+.node-expand:hover {
+  background: var(--hover);
+  color: var(--ink-2);
+}
+.flow-node .node-desc {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.flow-node.expanded .node-desc {
+  -webkit-line-clamp: unset;
+}
+.node-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 180px;
+}
+.node-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.node-section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.node-criteria-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.node-criteria-list li {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  padding-left: 10px;
+  position: relative;
+}
+.node-criteria-list li::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: var(--muted);
+}
+.flow-node .node-reason {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.flow-node.expanded {
+  height: auto !important;
+  min-height: 152px;
+  max-height: none;
+}
+
+/* Expanded node grows and pushes content below */
+.flow-node.expanded {
+  min-height: 152px;
+  box-shadow: 0 4px 12px #00000010;
+}
+
+.flow-node {
+  pointer-events: all;
+  cursor: default;
+}
+.node-expand {
+  pointer-events: all;
+  cursor: pointer;
+}

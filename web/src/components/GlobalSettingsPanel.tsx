@@ -21,7 +21,7 @@ export function GlobalSettingsPanel({
   const [tab, setTab] = useState(initialTab);
   const [settings, setSettings] = useState<UserSettings>();
   const [keys, setKeys] = useState<Record<string, string>>({});
-  const [show, setShow] = useState(false);
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     api
@@ -163,25 +163,38 @@ export function GlobalSettingsPanel({
                   )}
                   {tab === 'apikey' && (
                     <>
-                      <Button className="settings-btn secondary" onClick={() => setShow(!show)}>
-                        {show ? <EyeOff size={14} /> : <Eye size={14} />}
-                        {show ? '隐藏密钥' : '显示密钥'}
-                      </Button>
                       {settings.providers.map((provider) => (
-                        <label key={provider.id} className="user-setting-field">
-                          {provider.name || provider.id}
-                          <input
-                            type={show ? 'text' : 'password'}
-                            autoComplete="new-password"
-                            value={keys[provider.id] || ''}
-                            placeholder={
-                              provider.configured ? '已配置，输入新 Key 以替换' : '输入 API Key'
-                            }
-                            onChange={(event) =>
-                              setKeys({ ...keys, [provider.id]: event.target.value })
-                            }
-                          />
-                        </label>
+                        <div key={provider.id} className="user-setting-field">
+                          <label htmlFor={`provider-key-${provider.id}`}>
+                            {provider.name || provider.id}
+                          </label>
+                          <div className="key-input-wrap">
+                            <input
+                              id={`provider-key-${provider.id}`}
+                              type={showKeys[provider.id] ? 'text' : 'password'}
+                              autoComplete="new-password"
+                              value={keys[provider.id] || ''}
+                              placeholder={
+                                provider.configured ? '已配置，输入新 Key 以替换' : '输入 API Key'
+                              }
+                              onChange={(event) =>
+                                setKeys({ ...keys, [provider.id]: event.target.value })
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="key-toggle"
+                              aria-label={`${showKeys[provider.id] ? '隐藏' : '显示'} ${provider.name || provider.id} 密钥`}
+                              aria-pressed={!!showKeys[provider.id]}
+                              title={showKeys[provider.id] ? '隐藏密钥' : '显示密钥'}
+                              onClick={() =>
+                                setShowKeys((old) => ({ ...old, [provider.id]: !old[provider.id] }))
+                              }
+                            >
+                              {showKeys[provider.id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </>
                   )}
