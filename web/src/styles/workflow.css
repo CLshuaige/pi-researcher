@@ -27,6 +27,29 @@
   font-size: 14px;
   font-weight: 600;
 }
+.flow-node[data-navigable='true'] {
+  cursor: pointer;
+}
+.flow-node[data-navigable='true']:hover {
+  border-color: var(--cobalt);
+}
+.node-navigate {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.node-navigate:disabled {
+  cursor: default;
+}
+.node-navigate:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 3px;
+}
 .flow-node p {
   margin-top: 3px;
   color: var(--muted);

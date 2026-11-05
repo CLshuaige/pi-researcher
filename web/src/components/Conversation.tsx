@@ -1,5 +1,5 @@
 import { readableError } from '../../shared/errors';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   Check,
@@ -181,6 +181,7 @@ function UserMessage({
 }
 export function Conversation({
   session: s,
+  messageJump,
   connected,
   onSend,
   onStop,
@@ -196,6 +197,7 @@ export function Conversation({
   onOpenSettings,
 }: {
   session: ResearchSession;
+  messageJump?: { messageId: string; sequence: number };
   connected: boolean;
   onSend: (
     text: string,
@@ -220,7 +222,7 @@ export function Conversation({
   useEffect(() => {
     void preloadMarkdown();
   }, []);
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom, stopScroll } = useStickToBottom({
     resize: 'smooth',
     initial: 'instant',
   });
@@ -241,6 +243,23 @@ export function Conversation({
   const [quote, setQuote] = useState<MessageQuote>();
   const [quotes, setQuotes] = useState<MessageQuote[]>([]);
   const selectionScope = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!messageJump) return;
+    const container = scrollRef.current;
+    const message = selectionScope.current?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(messageJump.messageId)}"]`,
+    );
+    if (!container || !message) return;
+    stopScroll();
+    container.scrollTo({
+      top:
+        container.scrollTop +
+        message.getBoundingClientRect().top -
+        container.getBoundingClientRect().top -
+        16,
+      behavior: 'instant',
+    });
+  }, [messageJump, scrollRef, stopScroll]);
   async function answer(value: string) {
     if (!s.question || !value.trim()) return;
     setAnswering(true);
@@ -448,6 +467,7 @@ export function Conversation({
                 ).map((messages) => {
                   const m = messages[0];
                   const msgIndex = s.messages.indexOf(m);
+                  if (m.name === 'research_job' && m.args?.action === 'wait') return null;
                   return messages.length > 1 ? (
                     <CommandGroup
                       key={m.id}
@@ -470,7 +490,12 @@ export function Conversation({
                       reportError={reportError}
                     />
                   ) : m.role === 'tool' ? (
-                    <Fragment key={m.id}>
+                    <div
+                      key={m.id}
+                      className="tool-message"
+                      data-message-id={m.id}
+                      data-stage-target={messageJump?.messageId === m.id || undefined}
+                    >
                       {!s.subSessions.some(
                         (sub) => sub.toolCallId === (retries.get(m.id)?.id || m.id),
                       ) &&
@@ -506,7 +531,7 @@ export function Conversation({
                               onPreviewFile={onPreviewFile}
                             />
                           ))}
-                    </Fragment>
+                    </div>
                   ) : m.text || m.thinking?.trim() || m.thinkingStatus === 'running' ? (
                     <article
                       key={m.id}

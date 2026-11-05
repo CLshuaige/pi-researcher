@@ -7,6 +7,7 @@ import {
   Handle,
   Position,
   MarkerType,
+  useNodesState,
   type NodeProps,
   type Node,
   type ReactFlowInstance,
@@ -29,6 +30,7 @@ import type {
   ChatMessage,
 } from '../../shared/types';
 import { ResearchActivity } from './ResearchActivity';
+import { getStageStartMessages } from '../lib/research-navigation';
 
 type StageNode = Node<WorkflowNode & Record<string, unknown>, 'stage'>;
 const STAGE_WIDTH = 280;
@@ -38,6 +40,7 @@ const RESOURCE_GAP = 28;
 
 function Stage({ data }: NodeProps<StageNode>) {
   const expanded = !!data.expanded;
+  const navigate = data.onNavigate as (() => void) | undefined;
   const done = data.status === 'completed';
   const failed = data.status === 'failed' || data.status === 'cancelled';
   return (
@@ -45,16 +48,32 @@ function Stage({ data }: NodeProps<StageNode>) {
       className={`flow-node nodrag${expanded ? ' expanded' : ''}`}
       data-status={data.status}
       data-optional={!!data.optional}
+      data-navigable={!!navigate}
+      title={navigate ? '点击定位到该阶段的起始会话' : '该阶段暂无会话记录'}
+      onClick={navigate}
       aria-label={`${data.label}，${{ pending: '等待中', running: '进行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[data.status]}`}
     >
       <Handle type="target" position={Position.Left} id="left" />
       <span className="node-dot">{done && <Check size={9} />}</span>
       <div className="node-header">
-        <strong>{data.label}</strong>
+        <button
+          className="node-navigate"
+          aria-label={`定位${data.label}阶段的起始会话`}
+          disabled={!navigate}
+          onClick={(event) => {
+            event.stopPropagation();
+            navigate?.();
+          }}
+        >
+          <strong>{data.label}</strong>
+        </button>
         <button
           className="node-expand"
           aria-label={expanded ? '收起详情' : '展开详情'}
-          onClick={() => (data.onToggleExpand as () => void)?.()}
+          onClick={(event) => {
+            event.stopPropagation();
+            (data.onToggleExpand as () => void)?.();
+          }}
         >
           {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
@@ -96,6 +115,8 @@ const nodeTypes = { stage: Stage, resources: WorkflowResources };
 type FlowNode = StageNode | ResourceFlowNode;
 function FlowCanvas({
   workflow,
+  stageStarts,
+  onNavigateToMessage,
   full = false,
   running = false,
   onInit,
@@ -103,6 +124,8 @@ function FlowCanvas({
   onPreviewFile,
 }: {
   workflow: WorkflowData;
+  stageStarts: Map<string, string>;
+  onNavigateToMessage: (messageId: string) => void;
   full?: boolean;
   running?: boolean;
   onInit?: (inst: ReactFlowInstance<FlowNode>) => void;
@@ -135,7 +158,14 @@ function FlowCanvas({
         type: 'stage',
         position: { x, y: 0 },
         style: { width: STAGE_WIDTH, minHeight: STAGE_HEIGHT },
-        data: { ...node, expanded: isExpanded, onToggleExpand: () => toggleExpand(node.id) },
+        data: {
+          ...node,
+          expanded: isExpanded,
+          onToggleExpand: () => toggleExpand(node.id),
+          onNavigate: stageStarts.has(node.id)
+            ? () => onNavigateToMessage(stageStarts.get(node.id)!)
+            : undefined,
+        },
       });
       if (resources.length)
         result.push({
@@ -151,7 +181,14 @@ function FlowCanvas({
         });
     }
     return result;
-  }, [workflow, artifacts, onPreviewFile, expandedNodes]);
+  }, [workflow, artifacts, onPreviewFile, expandedNodes, stageStarts, onNavigateToMessage]);
+  const [renderedNodes, setRenderedNodes, onNodesChange] = useNodesState<FlowNode>([]);
+  useEffect(() => {
+    setRenderedNodes((previous) => {
+      const measurements = new Map(previous.map((node) => [node.id, node.measured]));
+      return nodes.map((node) => ({ ...node, measured: measurements.get(node.id) }));
+    });
+  }, [nodes, setRenderedNodes]);
   const edges = useMemo(
     () => [
       ...workflow.edges.map((e, i) => {
@@ -235,7 +272,8 @@ function FlowCanvas({
         {running ? '运行中' : '就位'}
       </div>
       <ReactFlow<FlowNode>
-        nodes={nodes}
+        nodes={renderedNodes}
+        onNodesChange={onNodesChange}
         edges={edges}
         nodeTypes={nodeTypes}
         onInit={handleInit}
@@ -261,9 +299,11 @@ export function Workflow({
   onPreviewFile,
   running,
   messages,
+  onNavigateToMessage,
 }: {
   running: boolean;
   messages: ChatMessage[];
+  onNavigateToMessage: (messageId: string) => void;
   workflow: WorkflowData;
   onClose: () => void;
   artifacts: Artifact[];
@@ -271,6 +311,11 @@ export function Workflow({
 }) {
   const [fullscreen, setFullscreen] = useState(false);
   const instanceRef = useRef<ReactFlowInstance<FlowNode> | null>(null);
+  const stageStarts = useMemo(() => getStageStartMessages(workflow, messages), [workflow, messages]);
+  const navigate = (messageId: string) => {
+    setFullscreen(false);
+    onNavigateToMessage(messageId);
+  };
   const preview = (path: string, name: string) => {
     setFullscreen(false);
     onPreviewFile(path, name);
@@ -335,6 +380,8 @@ export function Workflow({
         </div>
         <FlowCanvas
           workflow={workflow}
+          stageStarts={stageStarts}
+          onNavigateToMessage={navigate}
           artifacts={artifacts}
           onPreviewFile={preview}
           running={running}
@@ -385,6 +432,8 @@ export function Workflow({
               </div>
               <FlowCanvas
                 workflow={workflow}
+                stageStarts={stageStarts}
+                onNavigateToMessage={navigate}
                 artifacts={artifacts}
                 onPreviewFile={preview}
                 full

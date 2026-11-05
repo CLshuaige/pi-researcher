@@ -50,6 +50,11 @@ export default function App() {
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [messageJump, setMessageJump] = useState<{
+    sessionId: string;
+    messageId: string;
+    sequence: number;
+  }>();
   const [models, setModels] = useState<ModelOption[]>([]);
   useEffect(() => {
     api
@@ -154,6 +159,7 @@ export default function App() {
   }, []);
   function select(id: string) {
     if (active.current === id) return;
+    setMessageJump(undefined);
     setPreviewTabs([]);
     setActivePreviewId(undefined);
     setShowSettings(false);
@@ -488,6 +494,7 @@ export default function App() {
         <Conversation
           key={session.id}
           session={session}
+          messageJump={messageJump?.sessionId === session.id ? messageJump : undefined}
           connected={connected && !creating}
           onSend={(text, files, quote, quotes) =>
             act(() => api.send(session.id, text, files, quote, quotes))
@@ -584,6 +591,13 @@ export default function App() {
                   onPreviewFile={openPreviewFile}
                   workflow={session.workflow}
                   messages={session.messages}
+                  onNavigateToMessage={(messageId) =>
+                    setMessageJump((previous) => ({
+                      sessionId: session.id,
+                      messageId,
+                      sequence: (previous?.sequence ?? 0) + 1,
+                    }))
+                  }
                   onClose={() => setShowFlow(false)}
                 />
               )}

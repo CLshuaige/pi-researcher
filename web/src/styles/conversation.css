@@ -205,6 +205,16 @@
   background: var(--background);
   box-shadow: 0 2px 8px #1522420a;
 }
+.tool-message {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.tool-message[data-stage-target='true'] {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 8px;
+  border-radius: var(--radius);
+}
 .user-message {
   position: relative;
   align-self: flex-end;
