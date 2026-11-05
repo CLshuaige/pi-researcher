@@ -1,5 +1,5 @@
 import { readableError } from '../../shared/errors';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   Check,
@@ -39,6 +39,7 @@ import { SelectionToolbar } from './SelectionToolbar';
 import { SubSessionView } from './SubSessionView';
 import { copyText } from '../lib/clipboard';
 import { ThinkingBlock } from './ThinkingBlock';
+import { getLatestChecklistState } from './ChecklistView';
 import { isResearchRunning } from '../../shared/research';
 import type {
   Attachment,
@@ -219,6 +220,7 @@ export function Conversation({
 }) {
   const empty = s.messages.length === 0;
   const composerStatus = s.status === 'idle' && isResearchRunning(s) ? 'waiting' : s.status;
+  const checklistState = useMemo(() => getLatestChecklistState(s.messages), [s.messages]);
   useEffect(() => {
     void preloadMarkdown();
   }, []);
@@ -466,7 +468,6 @@ export function Conversation({
                   ),
                 ).map((messages) => {
                   const m = messages[0];
-                  const msgIndex = s.messages.indexOf(m);
                   if (m.name === 'research_job' && m.args?.action === 'wait') return null;
                   return messages.length > 1 ? (
                     <CommandGroup
@@ -503,18 +504,8 @@ export function Conversation({
                           <ToolStep
                             key={m.id}
                             message={toolView(m)}
-                            prevChecklistText={
-                              m.name === 'research_checklist'
-                                ? [...s.messages.slice(0, msgIndex)]
-                                    .reverse()
-                                    .find(
-                                      (p) =>
-                                        p.role === 'tool' &&
-                                        p.name === 'research_checklist' &&
-                                        typeof p.text === 'string' &&
-                                        p.text.startsWith('{'),
-                                    )?.text
-                                : undefined
+                            checklistState={
+                              m.name === 'research_checklist' ? checklistState : undefined
                             }
                             onRetry={() => onRetry(m.id)}
                             onPreviewFile={onPreviewFile}

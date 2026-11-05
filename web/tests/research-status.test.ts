@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isResearchRunning } from '../shared/research.ts';
+import { getLatestChecklistState } from '../src/components/ChecklistView.tsx';
 import { getStageStartMessages } from '../src/lib/research-navigation.ts';
 import type { ChatMessage, ResearchSession, Workflow } from '../shared/types.ts';
 
@@ -100,4 +101,63 @@ test('default and demo workflows map tool names and stage skills to node ids', (
     [...getStageStartMessages(navigationWorkflow('checklist', ['literature']), messages)],
     [],
   );
+});
+
+function checklistSnapshot(revision: number | undefined, status: string, initialized = true) {
+  return JSON.stringify({
+    initialized,
+    ...(revision === undefined ? {} : { revision }),
+    modules: [{ id: 'm1', status }],
+  });
+}
+
+test('latest checklist snapshot wins and previous text is the prior revision', () => {
+  const oldText = checklistSnapshot(4, 'running');
+  const latestText = checklistSnapshot(5, 'completed');
+  const messages = [tool('old', 'research_checklist'), tool('latest', 'research_checklist')];
+  messages[0].text = oldText;
+  messages[1].text = latestText;
+  assert.deepEqual(getLatestChecklistState(messages), { text: latestText, prevText: oldText });
+});
+
+test('same revisions prefer the last message while out-of-order older revisions do not win', () => {
+  const rev3Earlier = checklistSnapshot(3, 'running');
+  const rev3Later = checklistSnapshot(3, 'completed');
+  const rev2 = checklistSnapshot(2, 'pending');
+  const messages = [
+    tool('rev3-a', 'research_checklist'),
+    tool('rev3-b', 'research_checklist'),
+    tool('rev2-late', 'research_checklist'),
+  ];
+  messages[0].text = rev3Earlier;
+  messages[1].text = rev3Later;
+  messages[2].text = rev2;
+  assert.deepEqual(getLatestChecklistState(messages), { text: rev3Later, prevText: rev2 });
+});
+
+test('latest checklist ignores truncated, uninitialized, unrelated and invalid snapshots without mutating messages', () => {
+  const validText = checklistSnapshot(undefined, 'running');
+  const messages = [
+    tool('truncated', 'research_checklist'),
+    tool('uninitialized', 'research_checklist'),
+    tool('other-tool', 'research_task'),
+    tool('old', 'research_checklist'),
+  ];
+  messages[0].text = '{"initialized":true,"modules":[';
+  messages[1].text = checklistSnapshot(10, 'completed', false);
+  messages[2].text = checklistSnapshot(11, 'completed');
+  messages[3].text = validText;
+  const original = structuredClone(messages);
+  assert.deepEqual(getLatestChecklistState(messages), { text: validText });
+  assert.deepEqual(messages, original);
+  assert.equal(getLatestChecklistState([tool('no-data', 'research_checklist')]), undefined);
+});
+
+test('unrevisioned checklist snapshots use message order and retain the prior valid text', () => {
+  const first = checklistSnapshot(undefined, 'running');
+  const last = checklistSnapshot(undefined, 'completed');
+  const messages = [tool('first', 'research_checklist'), tool('last', 'research_checklist')];
+  messages[0].text = first;
+  messages[1].text = last;
+  assert.deepEqual(getLatestChecklistState(messages), { text: last, prevText: first });
 });

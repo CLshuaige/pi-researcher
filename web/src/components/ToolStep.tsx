@@ -175,12 +175,12 @@ function SourceGroup({ host, links }: { host: string; links: SourceLink[] }) {
 
 export function ToolStep({
   message: m,
-  prevChecklistText,
+  checklistState,
   onRetry,
   onPreviewFile,
 }: {
   message: ChatMessage;
-  prevChecklistText?: string;
+  checklistState?: { text: string; prevText?: string };
   onRetry: () => void;
   onPreviewFile?: (path: string, name: string) => void;
 }) {
@@ -317,7 +317,10 @@ export function ToolStep({
       )}
       <Reveal open={open}>
         {isChecklistJson(m.text || '') ? (
-          <ChecklistView text={m.text || ''} prevText={prevChecklistText} />
+          <ChecklistView
+            text={checklistState?.text || m.text || ''}
+            prevText={checklistState?.prevText}
+          />
         ) : (
           <ToolResultCard message={m} label={toolTitle(m)}>
             {groups.size > 0 ? (

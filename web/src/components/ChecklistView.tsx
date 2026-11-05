@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Check, Circle, CircleDot, ClipboardList, LoaderCircle, Minus, Pause } from 'lucide-react';
+import type { ChatMessage } from '../../shared/types';
 
 interface ChecklistModule {
   id: string;
@@ -59,6 +60,33 @@ export function isChecklistJson(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function getLatestChecklistState(
+  messages: ChatMessage[],
+): { text: string; prevText?: string } | undefined {
+  const snapshots = messages.flatMap((message, index) => {
+    if (message.role !== 'tool' || message.name !== 'research_checklist' || !isChecklistJson(message.text))
+      return [];
+    const data = JSON.parse(message.text) as ChecklistData;
+    return [{ text: message.text, revision: Number.isInteger(data.revision) ? data.revision : undefined, index }];
+  });
+  if (!snapshots.length) return undefined;
+
+  const byPriority = [...snapshots].sort((a, b) => {
+    const revisionA = a.revision ?? Number.NEGATIVE_INFINITY;
+    const revisionB = b.revision ?? Number.NEGATIVE_INFINITY;
+    return revisionA - revisionB || a.index - b.index;
+  });
+  const latest = byPriority.at(-1)!;
+  const previous = [...byPriority].reverse().find(
+    (snapshot) =>
+      snapshot.index !== latest.index &&
+      (latest.revision === undefined
+        ? snapshot.revision === undefined
+        : snapshot.revision !== latest.revision),
+  );
+  return { text: latest.text, ...(previous ? { prevText: previous.text } : {}) };
 }
 
 function moduleSignature(m: ChecklistModule): string {
