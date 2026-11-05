@@ -20,7 +20,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 45000,
     env: {
-      GEWU_PORT: '3101',
+      API_PORT: '3101',
       GEWU_DATA_DIR: testData,
       GEWU_WORKSPACE_DIR: `${testData}/workspaces`,
     },

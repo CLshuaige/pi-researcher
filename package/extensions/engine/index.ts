@@ -60,8 +60,8 @@ export class EngineCore {
     const methodDigest = digest(readFileSync(method, "utf8"));
     const maxSteps = options.maxSteps ?? 12;
     const maxRetries = options.maxRetries ?? 2;
-    const timeoutMs = options.timeoutMs ?? 900_000;
-    if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 30 || !Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 5 || !Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 86_400_000) throw new Error("Invalid engine limits");
+    const timeoutMs = options.timeoutMs ?? 0;
+    if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 30 || !Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 5 || !Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 86_400_000) throw new Error("Invalid engine limits");
     const work = workspacePath(root, "experiments");
     mkdirSync(work, { recursive: true });
     const lock = workspacePath(root, "experiments/engine.lock");
@@ -71,7 +71,7 @@ export class EngineCore {
     this.current = undefined;
     const cancel = () => controller.abort(signal?.reason ?? new Error("Parent cancelled"));
     signal?.addEventListener("abort", cancel, { once: true });
-    const timer = setTimeout(() => controller.abort(new Error("Engine deadline exceeded")), timeoutMs);
+    const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(new Error("Engine deadline exceeded")), timeoutMs) : undefined;
     const progressPath = workspacePath(root, "experiments/progress.json");
     const planPath = workspacePath(root, "experiments/plan.json");
     const usage = zeroUsage();
@@ -92,7 +92,7 @@ export class EngineCore {
       update?.(`engine：${name}`);
       try {
         const result = await runSdk({
-          cwd: work, host, signal: controller.signal, maxTurns: writable ? 40 : 20,
+          cwd: work, host, signal: controller.signal, maxTurns: 0,
           sessionDir: workspacePath(root, "experiments/sessions"),
           factories: [(pi) => { pi.on("tool_call", (event) => {
             if (event.toolName === "bash") scopeBash(work, event.input as { command?: string });
@@ -188,7 +188,7 @@ export default function engineExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "engine_start", label: "Engine", description: "Execute or resume a bounded method.md experiment. Preserves the existing plan and completed steps; returns actual terminal status and artifact paths.",
     exposure: "model-only",
-    parameters: Type.Object({ projectPath: Type.String(), timeoutMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 86400000 })), maxSteps: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })), maxRetries: Type.Optional(Type.Integer({ minimum: 0, maximum: 5 })) }),
+    parameters: Type.Object({ projectPath: Type.String(), timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000 })), maxSteps: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })), maxRetries: Type.Optional(Type.Integer({ minimum: 0, maximum: 5 })) }),
     async execute(_id, params, signal, update, ctx) {
       const result = await engine.start(params, ctx, signal, (text) => update?.({ content: [{ type: "text", text }], details: {} }));
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, usage: result.usage, isError: result.status !== "completed" };

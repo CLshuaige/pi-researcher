@@ -11,7 +11,6 @@ import { ResearchService } from './service.ts';
 import { displayFilename, flattenFiles, isVisiblePath, listArtifacts, safePath } from './files.ts';
 import type { Attachment } from '../shared/types.ts';
 import { parseQuote, parseQuotes } from './messages.ts';
-import { workspaceDirName } from './naming.ts';
 import {
   syncRuntimeConfig,
   CONFIG_KEYS,
@@ -95,23 +94,24 @@ export async function createApp(root: string, dataDir: string) {
     });
   });
   app.get('/api/sessions', (_req, res) => res.json(service.store.list()));
-  app.post('/api/sessions', async (req, res) => {
-    const s = service.store.create();
-    const config = await readModelConfiguration(root);
-    for (const [provider, value] of Object.entries(config.providers || {})) {
-      const first = (value as { models?: { id: string }[] }).models?.[0];
-      if (first) {
-        s.model = `${provider}/${first.id}`;
-        break;
+  // Synchronous draft selection is serialized before any configuration I/O.
+  app.post('/api/sessions', async (_req, res) => {
+    const s = await service.exclusive('draft', async () => {
+      const draft = service.store.draft();
+      if (!draft.model) {
+        const config = await readModelConfiguration(root);
+        for (const [provider, value] of Object.entries(config.providers || {})) {
+          const first = (value as { models?: { id: string }[] }).models?.[0];
+          if (first) {
+            draft.model = `${provider}/${first.id}`;
+            break;
+          }
+        }
+        service.store.save(draft);
       }
-    }
-    const dirName = workspaceDirName('新研究') + '_' + s.id.slice(0, 8);
-    const wsPath = service.store.setWorkspaceDir(s.id, dirName);
-    await mkdir(wsPath, { recursive: true });
-    const question = String(req.body?.question || '').trim();
-    if (question) await service.prepareName(s, question);
-    service.changed(s);
-    res.status(201).json(service.store.public(s));
+      return draft;
+    });
+    res.json(service.store.public(s));
   });
   app.get('/api/sessions/:id', (req, res) => res.json(service.store.public(session(req))));
   app.patch('/api/sessions/:id', async (req, res) => {
@@ -199,12 +199,17 @@ export async function createApp(root: string, dataDir: string) {
   app.post('/api/sessions/:id/messages', async (req, res) => {
     const s = session(req);
     const text = textOf(req.body);
-    const files = await checkedAttachments(s.id, req.body.attachments);
-    if (!text && !files.length) return res.status(400).json({ error: '请输入消息或添加附件' });
-    await service.exclusive(s.id, () => {
+    const requestId = req.body.requestId ?? randomUUID();
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(requestId))
+      return res.status(400).json({ error: '缺少有效的消息请求编号' });
+    await service.exclusive(s.id, async () => {
+      if (s.messages.some((m) => m.role === 'user' && m.requestId === requestId)) return;
+      const files = await checkedAttachments(s.id, req.body.attachments);
+      if (!text && !files.length)
+        throw Object.assign(new Error('请输入消息或添加附件'), { status: 400 });
       const quotes = parseQuotes(req.body.quotes, s.messages);
       const quote = quotes?.length ? undefined : parseQuote(req.body.quote, s.messages);
-      return service.send(s, text, files, quote, quotes);
+      return service.send(s, text, files, quote, quotes, requestId);
     });
     res.status(202).json(service.store.public(s));
   });
@@ -263,24 +268,32 @@ export async function createApp(root: string, dataDir: string) {
     upload.array('files', 10),
     async (req, res) => {
       const s = session(req);
-      const workspace = service.store.workspace(s.id);
-      await mkdir(join(workspace, 'inputs'), { recursive: true });
-      const files: Attachment[] = [];
-      for (const f of (req.files || []) as Express.Multer.File[]) {
-        // Multer decodes multipart names as latin1; browser File names are UTF-8.
-        const decoded = Buffer.from(f.originalname, 'latin1').toString('utf8');
-        const name =
-          decoded
-            .replace(/[\\/\x00-\x1f]/g, '_')
-            .replace(/^\.+/, '')
-            .slice(0, 150) || 'attachment';
-        const id = randomUUID();
-        const path = `inputs/${id}-${name}`;
-        if (!isVisiblePath(path)) throw Object.assign(new Error('不支持此附件名'), { status: 400 });
-        await rename(f.path, join(workspace, path));
-        files.push({ id, name, path, size: f.size });
-      }
-      await service.refresh(s);
+      const files = await service.exclusive(s.id, async () => {
+        const workspace = service.store.workspace(s.id);
+        await mkdir(join(workspace, 'inputs'), { recursive: true });
+        const files: Attachment[] = [];
+        for (const f of (req.files || []) as Express.Multer.File[]) {
+          // Multer decodes multipart names as latin1; browser File names are UTF-8.
+          const decoded = Buffer.from(f.originalname, 'latin1').toString('utf8');
+          const name =
+            decoded
+              .replace(/[\\/\x00-\x1f]/g, '_')
+              .replace(/^\.+/, '')
+              .slice(0, 150) || 'attachment';
+          const id = randomUUID();
+          const path = `inputs/${id}-${name}`;
+          if (!isVisiblePath(path))
+            throw Object.assign(new Error('不支持此附件名'), { status: 400 });
+          await rename(f.path, join(workspace, path));
+          files.push({ id, name, path, size: f.size });
+        }
+        if (s.phase === 'draft') {
+          s.draftAttachments = [...(s.draftAttachments || []), ...files];
+          service.store.save(s);
+        }
+        await service.refresh(s);
+        return files;
+      });
       res.status(201).json(files);
     },
   );
@@ -382,27 +395,37 @@ export async function createApp(root: string, dataDir: string) {
     res.json({ key, value, overridden });
   });
   // Write (patch) a workspace-level config override
-  app.put('/api/sessions/:id/config/:key', async (req, res) => {
+  app.route('/api/sessions/:id/config/:key').put(saveConfig).patch(saveConfig);
+  async function saveConfig(req: Request, res: Response) {
     const s = session(req);
     const key = String(req.params.key) as ConfigKey;
     if (!CONFIG_KEYS.includes(key)) return res.status(400).json({ error: `未知的配置项：${key}` });
-    const value = req.body;
-    if (!value || typeof value !== 'object' || Array.isArray(value))
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))
       return res.status(400).json({ error: '配置必须是 JSON 对象' });
-    const ws = service.store.workspace(s.id);
-    if (key === 'research-modules') await syncRuntimeConfig(root, ws, value);
-    await writeWorkspaceConfig(ws, key, value);
+    const value = await service.exclusive(s.id, async () => {
+      const ws = service.store.workspace(s.id);
+      const value =
+        req.method === 'PATCH' ? { ...(await readConfig(root, ws, key)), ...req.body } : req.body;
+      if (key === 'research-modules') await syncRuntimeConfig(root, ws, value);
+      await writeWorkspaceConfig(ws, key, value);
+      if (key === 'research-modules') await service.bridge.settingsChanged(s, value);
+      return value;
+    });
     res.json({ key, value, overridden: true });
-  });
+  }
   // Remove workspace override → revert to default
   app.delete('/api/sessions/:id/config/:key', async (req, res) => {
     const s = session(req);
     const key = String(req.params.key) as ConfigKey;
     if (!CONFIG_KEYS.includes(key)) return res.status(400).json({ error: `未知的配置项：${key}` });
-    const ws = service.store.workspace(s.id);
-    await removeWorkspaceConfig(ws, key);
-    if (key === 'research-modules') await syncRuntimeConfig(root, ws);
-    const value = await readConfig(root, ws, key);
+    const value = await service.exclusive(s.id, async () => {
+      const ws = service.store.workspace(s.id);
+      await removeWorkspaceConfig(ws, key);
+      if (key === 'research-modules') await syncRuntimeConfig(root, ws);
+      const value = await readConfig(root, ws, key);
+      if (key === 'research-modules') await service.bridge.settingsChanged(s, value);
+      return value;
+    });
     res.json({ key, value, overridden: false });
   });
   app.use('/api', (_req, res) => res.status(404).json({ error: '接口不存在' }));

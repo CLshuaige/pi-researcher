@@ -7,7 +7,7 @@
 在分配的实验输出目录中准备 `method.md`，给出问题、资源、运行范围、评价方式和停止条件。模型调用：
 
 ```json
-{"projectPath":"research/experiments/T-.../attempt-1","timeoutMs":900000,"maxSteps":12,"maxRetries":2}
+{"projectPath":"research/experiments/T-.../attempt-1","timeoutMs":0,"maxSteps":12,"maxRetries":2}
 ```
 
 该参数传给 `engine_start`。`maxRetries` 为每个尚未完成步骤在本次调用中的额外尝试次数；模型请求上限是执行阶段 40、只读阶段 20。总时间由 engine 超时及外层 research 超时共同限制。

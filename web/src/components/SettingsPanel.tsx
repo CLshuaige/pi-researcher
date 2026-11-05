@@ -1,7 +1,7 @@
 import { Button } from './ui/Button';
 import { Tabs } from '@animate-ui/react/primitives/radix-ui/tabs';
 import { Switch } from './ui/animated';
-import { Checkbox } from './ui/fields';
+import { Checkbox, IntegerInput } from './ui/fields';
 import { SettingsDialog } from './SettingsDialog';
 import { api } from '../api';
 import { useCallback, useEffect, useState } from 'react';
@@ -15,6 +15,7 @@ import {
   EyeOff,
   Lightbulb,
   FlaskConical,
+  Play,
 } from 'lucide-react';
 
 /** Default research-modules config matching package/config/research-modules.json */
@@ -22,8 +23,9 @@ const DEFAULT_RESEARCH_MODULES = {
   interactionMode: 'auto',
   hypothesis: { max_debate_iterations: 5 },
   method: { max_debate_iterations: 5 },
+  experiment: { max_optimization_iterations: 5 },
   literature: {
-    sources: ['arxiv', 'openalex', 'semantic_scholar', 'crossref', 'pubmed', 'dblp'],
+    sources: ['arxiv'],
     writeReview: false,
   },
 };
@@ -39,6 +41,7 @@ interface ResearchModulesConfig {
   interactionMode: string;
   hypothesis: { max_debate_iterations: number };
   method: { max_debate_iterations: number };
+  experiment: { max_optimization_iterations: number };
   literature: LiteratureConfig;
 }
 
@@ -51,7 +54,7 @@ const SOURCE_OPTIONS = [
   { id: 'dblp', label: 'DBLP' },
 ];
 
-type SettingsTab = 'literature' | 'hypothesis' | 'method';
+type SettingsTab = 'literature' | 'hypothesis' | 'method' | 'experiment';
 
 export function SettingsPanel({
   sessionId,
@@ -77,6 +80,9 @@ export function SettingsPanel({
       ...DEFAULT_RESEARCH_MODULES,
       ...value,
       literature: { ...DEFAULT_RESEARCH_MODULES.literature, ...value.literature },
+      hypothesis: { ...DEFAULT_RESEARCH_MODULES.hypothesis, ...value.hypothesis },
+      method: { ...DEFAULT_RESEARCH_MODULES.method, ...value.method },
+      experiment: { ...DEFAULT_RESEARCH_MODULES.experiment, ...value.experiment },
     });
     setAllowWebSearch(value.allowWebSearch ?? true);
     setApiKeys(value.apiKeys ?? {});
@@ -132,14 +138,24 @@ export function SettingsPanel({
       reportError('无法搜索：请开启网页搜索或至少勾选一个增强学术源');
       return;
     }
+    const rounds = [
+      config.hypothesis.max_debate_iterations,
+      config.method.max_debate_iterations,
+      config.experiment.max_optimization_iterations,
+    ];
+    if (rounds.some((value) => !Number.isInteger(value) || value < 1 || value > 20)) {
+      reportError('轮数必须是 1–20 的整数');
+      return;
+    }
     setKeyErrors({});
     setSaving(true);
     try {
-      const payload = { ...config, allowWebSearch, apiKeys };
+      const { interactionMode, ...moduleConfig } = config;
+      const payload = { ...moduleConfig, allowWebSearch, apiKeys };
       if (sessionId) {
-        await api.putConfig(sessionId, 'research-modules', payload);
+        await api.patchConfig(sessionId, 'research-modules', payload);
       } else {
-        localStorage.setItem(PENDING_KEY, JSON.stringify(payload));
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ ...payload, interactionMode }));
       }
       window.dispatchEvent(new Event('research-config-changed'));
       setDirty(false);
@@ -179,6 +195,7 @@ export function SettingsPanel({
     { id: 'literature', label: '文献调研', icon: BookOpen },
     { id: 'hypothesis', label: '假设构建', icon: Lightbulb },
     { id: 'method', label: '方法设计', icon: FlaskConical },
+    { id: 'experiment', label: '实验执行', icon: Play },
   ];
 
   return (
@@ -374,16 +391,13 @@ export function SettingsPanel({
                   <>
                     <div className="form-row">
                       <label htmlFor="hypothesis-rounds">最多讨论轮数</label>
-                      <input
+                      <IntegerInput
                         id="hypothesis-rounds"
-                        type="number"
                         min={1}
                         max={20}
                         value={config.hypothesis.max_debate_iterations}
-                        onChange={(e) =>
-                          update({
-                            hypothesis: { max_debate_iterations: Number(e.target.value) },
-                          })
+                        onValueChange={(value) =>
+                          update({ hypothesis: { max_debate_iterations: value } })
                         }
                       />
                     </div>
@@ -395,19 +409,38 @@ export function SettingsPanel({
                   <>
                     <div className="form-row">
                       <label htmlFor="method-rounds">最多讨论轮数</label>
-                      <input
+                      <IntegerInput
                         id="method-rounds"
-                        type="number"
                         min={1}
                         max={20}
                         value={config.method.max_debate_iterations}
-                        onChange={(e) =>
-                          update({
-                            method: { max_debate_iterations: Number(e.target.value) },
-                          })
+                        onValueChange={(value) =>
+                          update({ method: { max_debate_iterations: value } })
                         }
                       />
                     </div>
+                  </>
+                )}
+                {activeTab === 'experiment' && (
+                  <>
+                    <div className="form-row">
+                      <label htmlFor="experiment-rounds">最多优化轮数</label>
+                      <IntegerInput
+                        id="experiment-rounds"
+                        min={1}
+                        max={20}
+                        step={1}
+                        aria-describedby="experiment-rounds-help"
+                        value={config.experiment.max_optimization_iterations}
+                        onValueChange={(value) =>
+                          update({ experiment: { max_optimization_iterations: value } })
+                        }
+                      />
+                    </div>
+                    <p id="experiment-rounds-help" className="form-hint">
+                      默认 5 轮，范围
+                      1–20。仅在任务需要迭代改进时使用。初次执行不计入轮数，中断续跑累计计数。
+                    </p>
                   </>
                 )}
               </div>

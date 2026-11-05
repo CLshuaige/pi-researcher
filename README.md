@@ -33,13 +33,13 @@ pi
 
 ### Web
 
-Set model credentials in `.env` or the Web settings. Edit `.pi/agent/models.json` to change providers and models.
+Set model credentials in `.env` or the Web settings. Edit `.pi/agent/models.json` to change providers and models. Pick ports that are free for you (`API_PORT`, `VITE_DEV_PORT`, `VITE_DEV_API`); the defaults are 3001 / 5173.
 
 ```sh
 npm --prefix web run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and send a research question.
+Open http://127.0.0.1:$VITE_DEV_PORT (default [http://127.0.0.1:5173](http://127.0.0.1:5173)) and send a research question.
 
 For a built version:
 

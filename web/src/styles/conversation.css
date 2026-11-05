@@ -75,9 +75,9 @@
   mask-image: linear-gradient(to bottom, transparent 0%, black 42%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 42%);
 }
-.empty-layout > .empty-state,
-.empty-layout > .composer-area,
-.empty-layout > .suggestions-marquee {
+.empty-layout .empty-state,
+.empty-layout .composer-area,
+.empty-layout .suggestions-marquee {
   position: relative;
   z-index: 1;
 }
@@ -226,6 +226,9 @@
   line-height: 1.4;
 }
 .user-bubble {
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
   padding: 14px 18px;
   border-radius: 16px;
   background: var(--panel-soft);
@@ -395,6 +398,11 @@
   padding: 4px 14px;
   border-left: 2px solid #c9d7ec;
   color: #4a5670;
+}
+.markdown-table-scroll {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
 }
 .markdown table {
   width: 100%;
@@ -612,7 +620,10 @@
   min-height: 25px;
   display: flex;
   align-items: center;
+  gap: 9px;
   padding: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 .agent-breathing-dot {
   width: 11px;

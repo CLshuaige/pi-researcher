@@ -1,3 +1,4 @@
+import type { InputHTMLAttributes } from 'react';
 import { Select } from '@animate-ui/react/primitives/radix-ui/select';
 import { Checkbox as CheckboxPrimitive } from '@animate-ui/react/primitives/radix-ui/checkbox';
 import { Check, ChevronDown } from 'lucide-react';
@@ -58,5 +59,29 @@ export function Checkbox({
         <Check size={12} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
+  );
+}
+
+/** Preserve an empty edit and normalize leading zeros before React's numeric-value comparison. */
+export function IntegerInput({
+  value,
+  onValueChange,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & {
+  value: number;
+  onValueChange: (value: number) => void;
+}) {
+  return (
+    <input
+      {...props}
+      type="number"
+      step={1}
+      value={Number.isFinite(value) ? value : ''}
+      onChange={(event) => {
+        const value = event.currentTarget.value.replace(/^(-?)0+(?=\d)/, '$1');
+        event.currentTarget.value = value;
+        onValueChange(value === '' ? Number.NaN : Number(value));
+      }}
+    />
   );
 }

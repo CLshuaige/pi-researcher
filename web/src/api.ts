@@ -40,13 +40,35 @@ export const api = {
   sessions: () => request<SessionSummary[]>('/sessions'),
   session: (id: string) => request<ResearchSession>(`/sessions/${id}`),
   create: () => post<ResearchSession>('/sessions'),
-  send: (
+  send: async (
     id: string,
     text: string,
     attachments: Attachment[],
     quote?: MessageQuote,
     quotes?: MessageQuote[],
-  ) => post<ResearchSession>(`/sessions/${id}/messages`, { text, attachments, quote, quotes }),
+  ) => {
+    const payload = JSON.stringify({ text, attachments, quote, quotes });
+    const key = `gewu-pending-message-${id}`;
+    let pending: { payload: string; requestId: string } | undefined;
+    try {
+      pending = JSON.parse(sessionStorage.getItem(key) || 'null');
+    } catch {}
+    const requestId = pending?.payload === payload ? pending.requestId : crypto.randomUUID();
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ payload, requestId }));
+    } catch {}
+    const result = await post<ResearchSession>(`/sessions/${id}/messages`, {
+      text,
+      attachments,
+      quote,
+      quotes,
+      requestId,
+    });
+    try {
+      sessionStorage.removeItem(key);
+    } catch {}
+    return result;
+  },
   command: (id: string, command: string) =>
     post<ResearchSession>(`/sessions/${id}/commands`, { command }),
   stop: (id: string) => post<ResearchSession>(`/sessions/${id}/stop`),
@@ -69,6 +91,8 @@ export const api = {
   },
   preview: (id: string, path: string) =>
     request<{ text: string }>(`/sessions/${id}/files/preview?path=${encodeURIComponent(path)}`),
+  deleteFile: (id: string, path: string) =>
+    post<{ ok: boolean }>(`/sessions/${id}/files/delete`, { path }),
   download: (id: string, path = '') =>
     `/api/sessions/${id}/files/download?path=${encodeURIComponent(path)}`,
   // Config APIs
@@ -78,6 +102,11 @@ export const api = {
   putConfig: (id: string, key: ConfigKey, value: Record<string, unknown>) =>
     request<SingleConfigResponse>(`/sessions/${id}/config/${key}`, {
       method: 'PUT',
+      body: JSON.stringify(value),
+    }),
+  patchConfig: (id: string, key: ConfigKey, value: Record<string, unknown>) =>
+    request<SingleConfigResponse>(`/sessions/${id}/config/${key}`, {
+      method: 'PATCH',
       body: JSON.stringify(value),
     }),
   deleteConfig: (id: string, key: ConfigKey) =>

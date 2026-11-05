@@ -15,7 +15,7 @@ import {
   type ExtensionUIDialogOptions,
 } from '@earendil-works/pi-coding-agent';
 import { randomUUID } from 'node:crypto';
-import type { ChatMessage, UserQuestion } from '../shared/types.ts';
+import { isResearchWaiting, type ChatMessage, type UserQuestion } from '../shared/types.ts';
 import { buildMessagePrompt } from './messages.ts';
 import type { StoredSession } from './store.ts';
 import { SessionStore } from './store.ts';
@@ -28,6 +28,7 @@ type Live = {
   unsubscribe: () => void;
   assistantId?: string;
   users: Map<string, string>;
+  retry?: { targetId: string; executionId?: string };
 };
 
 export function extractLinks(text: string) {
@@ -88,6 +89,33 @@ function userText(message: { content: unknown }): string {
   return resultText(message);
 }
 
+/** Match the actual tool target; preparatory reads and unrelated commands stay separate. */
+export function matchesRetryTarget(
+  target: ChatMessage,
+  name: string,
+  args: Record<string, unknown>,
+  workspace: string,
+) {
+  if (target.name !== name) return false;
+  const previous = target.args || {};
+  if (name === 'subagent' && !previous.action && args.action === 'resume') {
+    const runId = target.text.match(/Async:[^\n]*\[([a-f0-9-]{36})\]/)?.[1];
+    return Boolean(runId && (args.id === runId || args.runId === runId));
+  }
+  const keys = ['path', 'url', 'query', 'agent', 'action', 'id', 'runId', 'moduleId', 'jobId'];
+  for (const key of keys) {
+    if (previous[key] === undefined) continue;
+    if (key === 'path' && typeof previous[key] === 'string' && typeof args[key] === 'string') {
+      if (resolve(workspace, previous[key]) !== resolve(workspace, args[key])) return false;
+    } else if (previous[key] !== args[key]) return false;
+  }
+  const command = (value: unknown) =>
+    typeof value === 'string'
+      ? value.replace(/^cd [^\n]+ && export TMPDIR=[^\n]+ &&\n/, '').trim()
+      : value;
+  return previous.command === undefined || command(previous.command) === command(args.command);
+}
+
 export class PiBridge {
   private live = new Map<string, Live>();
   private opening = new Map<string, Promise<Live>>();
@@ -116,7 +144,6 @@ export class PiBridge {
     if (existsSync(probe)) {
       const result = await promisify(execFile)(process.execPath, [probe], {
         cwd,
-        timeout: 30000,
         maxBuffer: 2 * 1024 * 1024,
       });
       await writeFile(join(cwd, '.pi/environment.json'), result.stdout, { mode: 0o600 });
@@ -164,6 +191,41 @@ export class PiBridge {
     ];
     for (const p of optional)
       if (existsSync(join(this.root, p))) extensionPaths.push(join(this.root, p));
+    // Native background children resolve resources from their actual project cwd,
+    // which does not contain the host's .pi/npm install. Supply the same provider
+    // entries as role defaults; explicit workspace overrides (including [] or
+    // false) take precedence. Tools selects names, not their providers.
+    const settingsPath = join(cwd, '.pi/settings.json');
+    let projectSettings: Record<string, any> = {};
+    if (existsSync(settingsPath))
+      projectSettings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    const subagents = projectSettings.subagents || {};
+    const overrides = subagents.agentOverrides || {};
+    const searchExtensions = extensionPaths.filter(path =>
+      /\/(?:pi-web-access|pi-academic-search|pi-arxivist)\//.test(path),
+    );
+    await writeFile(settingsPath, JSON.stringify({
+      httpIdleTimeoutMs: settingsManager.getGlobalSettings().httpIdleTimeoutMs ?? 0,
+      ...projectSettings,
+      subagents: {
+        ...subagents,
+        agentOverrides: {
+          ...overrides,
+          'research-literature': {
+            extensions: searchExtensions,
+            inheritSkills: false,
+            ...overrides['research-literature'],
+          },
+          'research-experiment': {
+            extensions: searchExtensions.filter(path => path.includes('/pi-web-access/')),
+            inheritSkills: false,
+            ...overrides['research-experiment'],
+          },
+        },
+      },
+    }, null, 2));
+    // Reload after materializing project settings so the launcher sees them too.
+    settingsManager.reload();
     const loader = new DefaultResourceLoader({
       cwd,
       agentDir,
@@ -250,6 +312,12 @@ export class PiBridge {
         },
       });
       s.sessionFile = session.sessionFile;
+      for (const entry of session.sessionManager.getBranch()) {
+        if (entry.type === 'message' && entry.message.role === 'toolResult' && entry.message.toolName === 'subagent') {
+          const message = entry.message;
+          updateSubSessions(s, message.toolCallId, { content: message.content, details: message.details }, true, message.isError);
+        }
+      }
       this.store.save(s);
       return live;
     } catch (error) {
@@ -330,6 +398,27 @@ export class PiBridge {
       setToolsExpanded: noop,
     } as unknown as ExtensionUIContext;
   }
+  async settingsChanged(s: StoredSession, value: Record<string, unknown>) {
+    const live = this.live.get(s.id);
+    if (!live) return;
+    // Mode changes are control signals, not research messages or a new research task.
+    const mode = value.interactionMode === 'review' ? 'review' : 'auto';
+    await live.session.sendCustomMessage(
+      {
+        customType: 'research-settings-changed',
+        display: false,
+        content: `Project module settings were updated. interactionMode=${mode}. Read the latest .pi/research-modules.json now; it supersedes previous snapshots. ${mode === 'review' ? 'Require approval at the next stage acceptance; do not automatically advance.' : 'Continue automatically within the current goal and authorized resources.'} Already running commands retain their launch parameters.`,
+      },
+      { deliverAs: 'steer', ...(live.session.isStreaming ? {} : { triggerTurn: false }) },
+    );
+    if (
+      mode === 'auto' &&
+      s.question?.kind === 'confirm' &&
+      s.question.title.startsWith('阶段验收：')
+    )
+      this.answer(s, s.question.id, '确认');
+  }
+
   answer(s: StoredSession, id: string, value: string) {
     if (s.question?.id !== id || !this.answers.has(id))
       throw Object.assign(new Error('此问题已结束'), { status: 409 });
@@ -340,6 +429,7 @@ export class PiBridge {
     switch (event.type) {
       case 'agent_start':
         s.status = 'running';
+        if (s.notice === '研究已暂停，可发送消息继续。') delete s.notice;
         break;
       case 'message_start':
         if (event.message.role === 'assistant') {
@@ -410,6 +500,17 @@ export class PiBridge {
           timestamp: Date.now(),
           status: 'running',
         };
+        const target =
+          live.retry && !live.retry.executionId
+            ? s.messages.find((message) => message.id === live.retry!.targetId)
+            : undefined;
+        if (
+          target &&
+          matchesRetryTarget(target, event.toolName, args, this.store.workspace(s.id))
+        ) {
+          toolMessage.retryOf = target.id;
+          live.retry!.executionId = toolMessage.id;
+        }
         s.messages.push(toolMessage);
         markStage(s.workflow, stageForTool(event.toolName, args), 'running');
         // Track sub-sessions for research_delegate and subagent
@@ -449,11 +550,12 @@ export class PiBridge {
             updateSubSessions(s, event.toolCallId, event.result, true, event.isError);
           } else if (event.isError) markStage(s.workflow, stage, 'failed');
         }
+        if (live.retry?.executionId === event.toolCallId) this.finishRetry(s, live);
         void this.refresh(s).catch(() => {});
         break;
       }
       case 'agent_settled':
-        s.status = 'idle';
+        s.status = !event.aborted && isResearchWaiting(s) ? 'waiting' : 'idle';
         if (event.aborted && /aborted/i.test(s.error || '')) {
           delete s.error;
           s.notice = '研究已暂停，可发送消息继续。';
@@ -473,6 +575,7 @@ export class PiBridge {
                 ? 'failed'
                 : 'completed';
         }
+        this.finishRetry(s, live, event.aborted ? '重试已停止。' : undefined);
         this.mapEntries(s, live);
         void this.refresh(s).catch(() => {});
         break;
@@ -547,7 +650,10 @@ export class PiBridge {
         })
         .finally(() => {
           this.jobs.delete(s.id);
-          if (!live.session.isStreaming) s.status = 'idle';
+          if (!live.session.isStreaming) {
+            s.status = isResearchWaiting(s) ? 'waiting' : 'idle';
+            this.finishRetry(s, live, s.error);
+          }
           if (!live.session.isStreaming && s.question) this.answers.get(s.question.id)?.();
           this.changed(s);
         });
@@ -582,6 +688,51 @@ export class PiBridge {
     this.mapEntries(s, live);
     this.changed(s);
   }
+  async retryTool(s: StoredSession, target: ChatMessage, sourceCallId = target.id) {
+    let live = await this.ensure(s);
+    const manager = live.session.sessionManager;
+    const entry = manager.getBranch().find(entry => entry.type === 'message' && entry.message.role === 'assistant' && entry.message.content.some(block => block.type === 'toolCall' && block.id === sourceCallId))
+      || (target.piEntryId ? manager.getEntry(target.piEntryId) : undefined);
+    if (!entry) throw Object.assign(new Error('无法定位原工具的会话位置，请从对应的回答重新执行。'), { status: 409 });
+    target.piEntryId = entry.id;
+    await live.session.extensionRunner.emit({ type: 'session_shutdown', reason: 'resume' });
+    live.unsubscribe(); live.session.dispose(); this.live.delete(s.id);
+    if (entry.parentId) manager.branch(entry.parentId);
+    else manager.resetLeaf();
+    manager.appendCustomEntry('gewu-tool-retry', { toolId: target.id, sourceCallId, at: Date.now() });
+    s.sessionFile = manager.getSessionFile();
+    live = await this.ensure(s);
+    live.retry = { targetId: target.id };
+    const control: ChatMessage = {
+      id: randomUUID(),
+      role: 'user',
+      timestamp: Date.now(),
+      text: `/research --retry 请重试工具步骤 ${target.name}。原输入：${JSON.stringify(target.args || {})}。原结果摘要：${JSON.stringify(target.text.slice(-8000))}。若原步骤启动了文献子代理且已有运行ID，优先恢复同一任务，不重复启动。先核对当前 Checklist、已有产物和最新参数，在当前目标允许时执行该步骤；前端已清除这个位置之后的旧对话，从这里生成新的后续步骤。不要引用或复述旧后续对话；保留并核验已有研究文件，不回退 Checklist 控制状态。若无法安全执行，请明确说明原因。实际匹配的工具结果会显示在原卡片；这是一条隐藏的重试控制指令。`,
+    };
+    try {
+      await this.send(s, control);
+    } catch (error) {
+      this.finishRetry(s, live, String(error));
+      throw error;
+    } finally {
+      live.users.delete(control.id);
+    }
+  }
+  private finishRetry(s: StoredSession, live: Live, error?: string) {
+    if (!live.retry) return;
+    const target = s.messages.find((message) => message.id === live.retry!.targetId);
+    const execution = s.messages.find((message) => message.id === live.retry!.executionId);
+    if (target) {
+      delete target.retryProgress;
+      target.retryStatus =
+        execution?.status && execution.status !== 'running' ? execution.status : 'failed';
+      if (!execution) target.retryError = error || '本次未实际执行目标工具，请查看后续说明。';
+      else if (error) target.retryError = error;
+      else delete target.retryError;
+    }
+    delete live.retry;
+  }
+
   async refreshModels() {
     for (const live of this.live.values()) await live.session.modelRuntime.refresh();
   }

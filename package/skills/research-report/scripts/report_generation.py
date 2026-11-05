@@ -261,10 +261,10 @@ def source_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
-def compile_report(output: Path, engine: str = "xelatex", timeout: int = 120) -> dict:
+def compile_report(output: Path, engine: str = "xelatex", timeout: int = 0) -> dict:
     root = output_root(output)
-    if timeout < 1:
-        raise ValueError("timeout must be positive")
+    if timeout < 0:
+        raise ValueError("timeout must be non-negative (0 disables the deadline)")
     if not root.is_dir():
         raise ValueError(f"Paper directory does not exist: {root}")
     # Check every generated destination before running a tool or writing a log.
@@ -280,7 +280,7 @@ def compile_report(output: Path, engine: str = "xelatex", timeout: int = 120) ->
         transcript.append("$ " + " ".join(command) + "\n")
         try:
             result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
-                                    encoding="utf-8", errors="replace", timeout=timeout, check=False)
+                                    encoding="utf-8", errors="replace", timeout=timeout or None, check=False)
         except subprocess.TimeoutExpired as exc:
             partial = exc.stdout or b""
             transcript.append(partial.decode("utf-8", errors="replace") if isinstance(partial, bytes) else partial)
@@ -370,7 +370,7 @@ def main() -> int:
     compile_cmd = commands.add_parser("compile", help="Run XeLaTeX/BibTeX with logs and explicit success status")
     compile_cmd.add_argument("--output", type=Path, default=Path("report"))
     compile_cmd.add_argument("--engine", choices=("xelatex", "lualatex"), default="xelatex")
-    compile_cmd.add_argument("--timeout", type=int, default=120, help="Timeout in seconds per command")
+    compile_cmd.add_argument("--timeout", type=int, default=0, help="Explicit timeout in seconds per command; 0 disables it")
     prompts = commands.add_parser("prompt", help="Render a writing prompt for Pi; does not call a model")
     prompts.add_argument("--stage", choices=tuple(STAGES), required=True)
     prompts.add_argument("--context", type=Path, required=True)

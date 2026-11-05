@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 /**
@@ -13,6 +14,11 @@ import { join } from 'node:path';
  */
 
 const CONFIG_DIR = '.gewu/config';
+async function writeJson(path: string, value: unknown) {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+  await rename(temporary, path);
+}
 
 /** Names of known config files (without extension). */
 export const CONFIG_KEYS = ['research', 'research-modules', 'web-search', 'models'] as const;
@@ -35,7 +41,15 @@ export async function readConfig(
   const wsPath = workspacePath(workspace, key);
   if (existsSync(wsPath)) {
     try {
-      return JSON.parse(await readFile(wsPath, 'utf8'));
+      const value = JSON.parse(await readFile(wsPath, 'utf8'));
+      // Existing workspaces predate experiment settings; expose the effective default on read.
+      if (key === 'research-modules') {
+        const experiment = value.experiment;
+        if (experiment === undefined) value.experiment = { max_optimization_iterations: 5 };
+        else if (experiment && typeof experiment === 'object' && !Array.isArray(experiment))
+          value.experiment = { max_optimization_iterations: 5, ...experiment };
+      }
+      return value;
     } catch {
       // Corrupted workspace config → fall through to default
     }
@@ -55,9 +69,7 @@ export async function writeWorkspaceConfig(
 ): Promise<void> {
   const dir = join(workspace, CONFIG_DIR);
   await mkdir(dir, { recursive: true });
-  await writeFile(workspacePath(workspace, key), JSON.stringify(value, null, 2) + '\n', {
-    mode: 0o600,
-  });
+  await writeJson(workspacePath(workspace, key), value);
 }
 
 /** Remove a workspace-level override (revert to default). */
@@ -94,16 +106,10 @@ export async function syncRuntimeConfig(
   const runtime = {
     hypothesis: value.hypothesis ?? { max_debate_iterations: 5 },
     method: value.method ?? { max_debate_iterations: 5 },
+    experiment: { max_optimization_iterations: 5 },
     interactionMode: value.interactionMode ?? 'auto',
     literature: {
-      sources: literature?.sources ?? [
-        'arxiv',
-        'openalex',
-        'semantic_scholar',
-        'crossref',
-        'pubmed',
-        'dblp',
-      ],
+      sources: literature?.sources ?? ['arxiv'],
       writeReview: literature?.writeReview ?? false,
     },
   };
@@ -124,10 +130,22 @@ export async function syncRuntimeConfig(
     if (!Number.isInteger(count) || Number(count) < 1 || Number(count) > 20)
       throw Object.assign(new Error('讨论轮数必须是 1–20 的整数'), { status: 400 });
   }
+  const experiment = value.experiment === undefined ? {} : value.experiment;
+  if (
+    !experiment ||
+    typeof experiment !== 'object' ||
+    Array.isArray(experiment) ||
+    Object.keys(experiment).some((key) => key !== 'max_optimization_iterations')
+  )
+    throw Object.assign(new Error('实验执行参数格式无效'), { status: 400 });
+  const settings = experiment as Record<string, unknown>;
+  const count =
+    settings.max_optimization_iterations === undefined ? 5 : settings.max_optimization_iterations;
+  if (!Number.isInteger(count) || Number(count) < 1 || Number(count) > 20)
+    throw Object.assign(new Error('优化轮数必须是 1–20 的整数'), { status: 400 });
+  runtime.experiment.max_optimization_iterations = Number(count);
   await mkdir(join(workspace, '.pi'), { recursive: true });
-  await writeFile(join(workspace, '.pi/research-modules.json'), JSON.stringify(runtime, null, 2), {
-    mode: 0o600,
-  });
+  await writeJson(join(workspace, '.pi/research-modules.json'), runtime);
   const keys = value.apiKeys as Record<string, string> | undefined;
   if (keys) {
     const dir = process.env.PI_CODING_AGENT_DIR || join(root, '.pi/agent');

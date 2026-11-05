@@ -55,16 +55,32 @@
 .floating-file-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
+  gap: 2px;
+  padding: 3px 6px 3px 4px;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--panel);
   font-size: 11px;
   color: var(--ink-2);
 }
-.floating-file-chip > span {
-  max-width: 120px;
+.floating-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: inherit;
+  max-width: 160px;
+}
+.floating-file-name:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+.floating-file-name > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -73,11 +89,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 3px;
   color: var(--muted);
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.floating-quote .floating-remove {
+  opacity: 1;
+}
+.floating-file-chip:hover .floating-remove {
+  opacity: 1;
 }
 .floating-remove:hover {
   background: var(--line);
@@ -116,25 +140,6 @@
 .composer-input-wrapper {
   flex: 1;
   min-width: 0;
-}
-.composer-input-wrapper textarea {
-  display: block;
-  width: 100%;
-  height: 26px;
-  min-height: 26px;
-  max-height: 160px;
-  margin: 0;
-  padding: 0;
-  resize: none;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font-size: 15px;
-  line-height: 26px;
-}
-.composer-input-wrapper textarea::placeholder {
-  color: var(--muted);
-  letter-spacing: 0.01em;
 }
 /* Bottom row with attachment and send buttons */
 .composer-bottom-row {
@@ -193,42 +198,32 @@
   color: var(--cobalt);
   background: var(--cobalt-pale);
 }
-/* ── MDEditor overrides for chat composer ─────────────────────── */
+/* Native message input inherits the page typography. */
 .composer-editor-wrapper {
   flex: 1;
   min-width: 0;
   padding: 10px 14px 0;
 }
-.composer-editor-wrapper .w-md-editor {
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
+.composer-input {
+  display: block;
+  width: 100%;
+  min-height: 1lh;
+  max-height: 160px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  overflow-y: auto;
 }
-.composer-editor-wrapper .w-md-editor-toolbar {
-  display: none !important;
+.composer-input::placeholder {
+  color: var(--muted);
 }
-.composer-editor-wrapper .w-md-editor-content {
-  background: transparent !important;
+.composer-input:placeholder-shown {
+  overflow-y: hidden;
 }
-.composer-editor-wrapper .w-md-editor-text-pre,
-.composer-editor-wrapper .w-md-editor-text-pre > code,
-.composer-editor-wrapper .w-md-editor-text-input,
-.composer-editor-wrapper .w-md-editor-text {
-  /* The visible code layer and textarea caret must use identical text metrics. */
-  font-size: 15px !important;
-  line-height: 26px !important;
-  color: var(--ink) !important;
-  background: transparent !important;
-  min-height: 26px !important;
-  max-height: 160px !important;
-}
-.composer-editor-wrapper .w-md-editor-text-input::placeholder {
-  color: var(--muted) !important;
-}
-.composer-editor-wrapper .w-md-editor-preview {
-  display: none !important;
-}
-/* ── End MDEditor overrides ───────────────────────────────────── */
 .send-button {
   display: inline-flex;
   align-items: center;

@@ -45,7 +45,7 @@ function HistoryItem({
         title={session.title}
       >
         <span className="history-title">{session.title}</span>
-        {session.status === 'running' ? (
+        {session.status === 'running' || session.status === 'waiting' ? (
           <Circle size={7} fill="currentColor" />
         ) : (
           <time>
@@ -211,10 +211,7 @@ export function Sidebar({
         <span>新建研究</span>
       </Button>
       <nav className="sidebar-nav" aria-label="导航">
-        <button
-          className="nav-item"
-          onClick={() => onSelect(sessions.find((s) => s.mode === 'pi')?.id || 'demo')}
-        >
+        <button className="nav-item" onClick={onNew} disabled={creating}>
           <House size={18} />
           首页
         </button>

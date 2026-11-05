@@ -32,7 +32,7 @@ import {
 import { useStickToBottom } from 'use-stick-to-bottom';
 import { SkillBox } from './SkillBox';
 import heroBg from '../assets/hero-bg.png';
-import { ToolStep } from './ToolStep';
+import { ToolStep, CommandGroup, groupAdjacentCommands } from './ToolStep';
 import { Composer } from './Composer';
 import { Markdown, preloadMarkdown } from './Markdown';
 import { SelectionToolbar } from './SelectionToolbar';
@@ -53,7 +53,7 @@ function isFinalAnswer(session: ResearchSession, message: ChatMessage) {
   const following = session.messages.slice(session.messages.indexOf(message) + 1);
   const nextUser = following.findIndex((item) => item.role === 'user');
   const turn = nextUser < 0 ? following : following.slice(0, nextUser);
-  return turn.length === 0 && (nextUser >= 0 || !['running', 'stopping'].includes(session.status));
+  return turn.length === 0 && (nextUser >= 0 || !['running', 'waiting', 'stopping'].includes(session.status));
 }
 
 function UserMessage({
@@ -221,6 +221,7 @@ export function Conversation({
   });
   const composerArea = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(130);
+  const [focusRequest, setFocusRequest] = useState(0);
   useEffect(() => {
     if (!composerArea.current) return;
     const observer = new ResizeObserver((entries) =>
@@ -247,13 +248,26 @@ export function Conversation({
       setAnswering(false);
     }
   }
+  const retries = new Map<string, ChatMessage>();
+  for (const message of s.messages) if (message.retryOf) retries.set(message.retryOf, message);
+  const toolView = (message: ChatMessage): ChatMessage => {
+    const latest = retries.get(message.id);
+    return {
+      ...message,
+      ...(latest ? { text: latest.text, args: latest.args, links: latest.links } : message.retryStatus === 'running' ? { text: '', links: undefined } : {}),
+      status: message.retryStatus || message.status,
+    };
+  };
   const composer = (
     <div ref={composerArea} className="conversation-composer">
       <Composer
         sessionId={s.id}
+        draft={s.phase === 'draft'}
+        initialFiles={s.draftAttachments}
         key={s.id}
         status={s.status}
         connected={connected}
+        focusRequest={focusRequest}
         suggestion={suggestion}
         quote={quote}
         quotes={quotes}
@@ -261,10 +275,16 @@ export function Conversation({
         onRemoveQuotes={() => setQuotes([])}
         onRemoveQuoteAt={(index) => setQuotes((old) => old.filter((_, i) => i !== index))}
         onSend={async (text, files, selectedQuote, selectedQuotes) => {
-          await onSend(text, files, selectedQuote, selectedQuotes);
-          setQuote(undefined);
-          setQuotes([]);
-          void scrollToBottom();
+          const restoreFocus = composerArea.current?.contains(document.activeElement);
+          try {
+            await onSend(text, files, selectedQuote, selectedQuotes);
+            setQuote(undefined);
+            setQuotes([]);
+            void scrollToBottom();
+          } finally {
+            // Survives the first-message layout change and waits for an enabled textarea.
+            if (restoreFocus) setFocusRequest((value) => value + 1);
+          }
         }}
         onStop={onStop}
         onUpload={onUpload}
@@ -275,6 +295,7 @@ export function Conversation({
         onModelChange={onModelChange}
         onThinkingLevelChange={onThinkingLevelChange}
         onOpenSettings={onOpenSettings}
+        onPreviewFile={onPreviewFile}
       />
     </div>
   );
@@ -406,8 +427,23 @@ export function Conversation({
           <div className="message-scroll" ref={scrollRef}>
             <div className="message-content" ref={contentRef}>
               <div className="message-list" ref={selectionScope}>
-                {s.messages.map((m) =>
-                  m.role === 'user' ? (
+                {groupAdjacentCommands(s.messages.filter(m =>
+                  !m.retryOf && (m.role !== 'assistant' || m.text || m.thinking?.trim() || m.thinkingStatus === 'running'),
+                )).map(messages => {
+                  const m = messages[0];
+                  const msgIndex = s.messages.indexOf(m);
+                  return messages.length > 1 ? (
+                    <CommandGroup
+                      key={m.id}
+                      messages={messages}
+                      renderMessage={message => <ToolStep
+                        key={message.id}
+                        message={toolView(message)}
+                        onRetry={() => onRetry(message.id)}
+                        onPreviewFile={onPreviewFile}
+                      />}
+                    />
+                  ) : m.role === 'user' ? (
                     <UserMessage
                       key={m.id}
                       message={m}
@@ -417,10 +453,26 @@ export function Conversation({
                     />
                   ) : m.role === 'tool' ? (
                     <Fragment key={m.id}>
-                      {!s.subSessions.some((sub) => sub.toolCallId === m.id) && (
-                        <ToolStep
+                      {!s.subSessions.some(
+                        (sub) => sub.toolCallId === (retries.get(m.id)?.id || m.id),
+                      ) &&
+                        !(m.name === 'research_job' && m.args?.action === 'wait') && (
+                          <ToolStep
                           key={m.id}
-                          message={m}
+                          message={toolView(m)}
+                          prevChecklistText={
+                            m.name === 'research_checklist'
+                              ? [...s.messages.slice(0, msgIndex)]
+                                  .reverse()
+                                  .find(
+                                    (p) =>
+                                      p.role === 'tool' &&
+                                      p.name === 'research_checklist' &&
+                                      typeof p.text === 'string' &&
+                                      p.text.startsWith('{'),
+                                  )?.text
+                              : undefined
+                          }
                           onRetry={() => onRetry(m.id)}
                           onPreviewFile={onPreviewFile}
                         />
@@ -428,7 +480,7 @@ export function Conversation({
                       {/* Render sub-sessions for research_delegate / subagent tool calls */}
                       {(m.name === 'research_delegate' || m.name === 'subagent') &&
                         s.subSessions
-                          .filter((sub) => sub.toolCallId === m.id)
+                          .filter((sub) => sub.toolCallId === (retries.get(m.id)?.id || m.id))
                           .map((sub) => (
                             <SubSessionView
                               key={sub.id}
@@ -501,11 +553,12 @@ export function Conversation({
                         </div>
                       )}
                     </article>
-                  ) : null,
-                )}
-                {s.status === 'running' && !s.question && (
-                  <div className="agent-pending" role="status" aria-label="正在继续研究">
+                  ) : null;
+                })}
+                {(s.status === 'running' || s.status === 'waiting') && !s.question && (
+                  <div className="agent-pending" role="status" aria-label={s.status === 'waiting' ? '等待后台任务完成' : '正在继续研究'}>
                     <span className="agent-breathing-dot" />
+                    {s.status === 'waiting' && <span>后台任务进行中，完成后继续研究</span>}
                   </div>
                 )}
                 {s.question && (

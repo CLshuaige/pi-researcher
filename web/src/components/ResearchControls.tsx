@@ -15,7 +15,9 @@ export function ResearchControls({ session }: { session: ResearchSession }) {
   };
   const label = session.question
     ? '等待你的回复'
-    : session.status === 'running'
+    : session.status === 'waiting'
+      ? '后台任务进行中'
+      : session.status === 'running'
       ? '研究进行中'
       : session.status === 'stopping'
         ? '正在停止'

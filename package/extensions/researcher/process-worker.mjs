@@ -35,7 +35,7 @@ process.once('message', ({ command, cwd, env, logPath, exitPath, timeoutSeconds 
     child = spawn('/bin/bash', ['--noprofile', '--norc', '-c', command], { cwd, env: { ...process.env, ...env }, detached: true, stdio: ['ignore', log, log] });
     child.once('error', error => finish(null, null, error));
     child.once('exit', (code, signal) => finish(code, signal));
-    timer = setTimeout(() => cancel('timed_out'), timeoutSeconds * 1000);
+    if (timeoutSeconds > 0) timer = setTimeout(() => cancel('timed_out'), timeoutSeconds * 1000);
   } catch (error) { finish(null, null, error); }
   finally { if (log !== undefined) closeSync(log); }
 });

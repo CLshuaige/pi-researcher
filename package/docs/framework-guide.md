@@ -226,7 +226,7 @@ Skill 文件读取失败显示 `SKILL LOAD FAILED` 和明确的资源错误，�
   "moduleId": "M1",
   "command": "python3 -u -c 'from moabb.datasets import BNCI2014_001; BNCI2014_001().download()'",
   "env": {"MNE_DATA": "/home/chenl/project/temp/workspace/eeg-test/mne_data"},
-  "timeoutSeconds": 1200
+  "timeoutSeconds": 0
 }
 ```
 
@@ -326,16 +326,16 @@ T 续接可明确指向同一 T 下旧 attempt 的实验目录；新的 T 不能
 
 | 限额 | 当前默认值与入口 | 含义 |
 |---|---|---|
-| 主闭环时间 | 30 分钟累计活跃时间；`controller.ts` | 不含 waiting/paused 时间；恢复开启新一轮，运行中输入不重置。 |
-| 主自动续跑 | 20 次；`controller.ts` | 普通自动继续和真实自动唤醒共用；不等于模型请求数。 |
+| 主闭环时间 | 无默认期限 | 由用户暂停/停止、真实错误或控制协议决定终止。 |
+| 主自动续跑 | 无默认次数上限 | 普通自动继续和真实自动唤醒仍记录次数。 |
 | 无进展 | 指纹连续重复计数达到 3；`controller.ts` | 触发暂停；单纯等待不累积此计数。 |
 | 活动工作数 | `maxConcurrent: 2`，范围 1–8 | 同一项目运行中的 T 和 J 合计，读取任务记录计算；不是 GPU 调度器或通用跨进程原子配额。 |
-| T 超时/请求 | `timeoutMs: 900000`、`maxTurns: 30` | 每次 attempt；请求数包含该会话的压缩请求。 |
-| J 超时 | `timeoutSeconds: 1200`，范围 1–86400 | 单个进程；暂停模型不取消 J，其超时继续按墙钟计时。 |
+| T 超时/请求 | `timeoutMs: 0`、`maxTurns: 0`（默认不限制） | 每次 attempt；请求数包含该会话的压缩请求。 |
+| J 超时 | `timeoutSeconds: 0`（默认不限制），显式正数范围 1–86400 | 单个进程；暂停模型不取消 J，其超时继续按墙钟计时。 |
 | 一次时间唤醒 | `wakeAfterSeconds: 1–1800` | 一次性，不是周期定时器；不会延长闭环截止时间。 |
-| engine | 默认 15 分钟、最多 12 步、每步最多 2 次重试 | 只读阶段最多 20 次模型请求，可写阶段 40 次；受外层委派时间限制。 |
+| engine | 默认无期限、无模型请求上限；最多 12 步、每步最多 2 次重试 | 步骤和重试约束控制执行计划，显式 timeoutMs 仍会生效。 |
 
-主模型还限定每次激活最多 100 个 turn（不含子会话与独立压缩请求）。这些主控制项是 Controller 中的常量，不是 `.pi/research.json` 已支持的配置项。token/费用从 SDK 会话使用量聚合返回，engine 嵌套使用量经工具传回；预算次数与费用统计不是同一个量。
+主模型默认不限制 turn 数或活动时间。token/费用从 SDK 会话使用量聚合返回，engine 嵌套使用量经工具传回；预算次数与费用统计不是同一个量。
 
 ## 9. 常见问题排查
 

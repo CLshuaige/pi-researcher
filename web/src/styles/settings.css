@@ -18,7 +18,7 @@
   display: flex;
   flex-direction: column;
   width: min(880px, 96vw);
-  height: min(600px, 85dvh);
+  height: min(720px, 92dvh);
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--panel);
@@ -418,6 +418,9 @@
   gap: 9px;
   margin: 16px 0;
   font-size: 13px;
+}
+.user-setting-field .key-input-wrap input {
+  padding-right: 38px;
 }
 .profile-settings {
   display: flex;

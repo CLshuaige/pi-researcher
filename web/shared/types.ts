@@ -1,4 +1,13 @@
-export type RunStatus = 'idle' | 'running' | 'stopping' | 'interrupted';
+export type RunStatus = 'idle' | 'running' | 'waiting' | 'stopping' | 'interrupted';
+
+/** The parent can finish its turn while the research still owns background work. */
+export function isResearchWaiting(session: Pick<ResearchSession, 'workflow' | 'subSessions'>) {
+  const state = session.workflow.control?.state;
+  if (state === 'paused' || state === 'stopped' || state === 'completed') return false;
+  return state === 'waiting' || session.subSessions.some(child =>
+    child.status === 'running' || child.status === 'pending',
+  );
+}
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 /** Thinking levels supported by Pi SDK */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -32,6 +41,13 @@ export interface ChatMessage {
   quotes?: MessageQuote[];
   piEntryId?: string;
   queued?: boolean;
+  requestId?: string;
+  /** Actual new tool calls remain in the transcript and project onto their original retry card. */
+  retryOf?: string;
+  retryAttempts?: number;
+  retryProgress?: string;
+  retryStatus?: StepStatus;
+  retryError?: string;
   /** Model thinking/reasoning content, streamed separately from text. */
   thinking?: string;
   thinkingStatus?: StepStatus;
@@ -89,6 +105,8 @@ export interface SubSession {
   startedAt: number;
   endedAt?: number;
   taskId?: string;
+  asyncRunId?: string;
+  asyncDir?: string;
   progress?: string;
   summary?: string;
   outcome?: string;
@@ -96,6 +114,9 @@ export interface SubSession {
   sessionFile?: string;
 }
 export interface ResearchSession {
+  /** Drafts are excluded from history until the first user message is persisted. */
+  phase?: 'draft' | 'started' | 'archived';
+  draftAttachments?: Attachment[];
   workspaceDir?: string;
   workspacePath?: string;
   id: string;

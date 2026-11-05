@@ -1,3 +1,5 @@
+import { delimiter, resolve } from 'node:path';
+
 /** Avoid borrowing Python environments from the shell that launched the web host. */
 export function workspaceEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...input };
@@ -22,4 +24,11 @@ export function workspaceEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEn
   ])
     delete env[key];
   return env;
+}
+
+/** pi-subagents' supported read-only discovery path for file-defined project agents. */
+export function researchAgentPaths(root: string, inherited = '') {
+  return [
+    ...new Set([...inherited.split(delimiter).filter(Boolean), resolve(root, 'package/agents')]),
+  ].join(delimiter);
 }

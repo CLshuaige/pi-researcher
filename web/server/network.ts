@@ -15,8 +15,8 @@ export function configureNetwork() {
       noProxy: bypass,
       allowH2: false,
       proxyTunnel: true,
-      headersTimeout: 300000,
-      bodyTimeout: 300000,
+      headersTimeout: 0,
+      bodyTimeout: 0,
       connect: { autoSelectFamilyAttemptTimeout: 2000 },
     }),
   );

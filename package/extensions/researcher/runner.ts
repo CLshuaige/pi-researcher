@@ -48,8 +48,8 @@ export class ResearchRunner {
     if (!request.command.trim()) throw new Error('Supply a foreground command; do not use nohup, &, or daemonization');
     const store = checklist.files, cwd = store.path(request.cwd ?? '.');
     if (!statSync(cwd).isDirectory()) throw new Error('Job cwd must be an existing project directory');
-    const timeoutSeconds = request.timeoutSeconds ?? 1200;
-    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 86400) throw new Error('timeoutSeconds must be 1..86400');
+    const timeoutSeconds = request.timeoutSeconds ?? 0;
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 86400) throw new Error('timeoutSeconds must be 0..86400 (0 disables the deadline)');
     for (const name of Object.keys(request.env ?? {})) if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) throw new Error('Invalid environment variable name');
     const fingerprint = digest(JSON.stringify([c.researchId, c.objectiveRevision, module.id, request.command, cwd, request.env ?? {}, timeoutSeconds]));
     const previous = store.jobs().find(j => j.status === 'running' && j.fingerprint === fingerprint);
@@ -161,7 +161,7 @@ export class ResearchRunner {
     this.active.set(id, { controller, done, root: store.root });
     const cancel = () => controller.abort(signal?.reason ?? new Error("Parent cancelled"));
     signal?.addEventListener("abort", cancel, { once: true });
-    const timer = setTimeout(() => controller.abort(new Error("Research deadline exceeded")), config.timeoutMs);
+    const timer = config.timeoutMs > 0 ? setTimeout(() => controller.abort(new Error("Research deadline exceeded")), config.timeoutMs) : undefined;
     let handoff: Handoff | undefined;
     let lastProgress = 0;
     const progress = (text: string) => {
@@ -243,6 +243,7 @@ export class ResearchRunner {
           checklist ? `Authoritative research goal revision ${checklist.objectiveRevision}: ${checklist.objective}\nModule: ${JSON.stringify(checklist.modules.find(m => m.id === request.moduleId))}` : "",
           `Read these inputs on demand (the supplied checklist objective supersedes historical BRIEF.md):\n${inputs.join("\n")}`,
           `Use skills: ${request.skills.join(", ")}. Read their SKILL.md instructions.`,
+          `Before starting, restarting or resuming this task, run the research-task skill's check-settings.mjs with --workspace ${JSON.stringify(store.root)} to read and validate the latest project module settings. Earlier configuration snapshots and historical outputs are provenance, not the current settings. Record the effective settings with new results. Settings remain editable; apply later changes at the next execution boundary, without pretending a running command changed its launch parameters.`,
           `Completion criteria:\n${request.doneWhen.map((s) => `- ${s}`).join("\n")}`,
           `Workspace root: ${store.root}\nYour output directory: ${outputDir}`,
           "Bash starts in your output directory; use absolute paths for input files. Other tools accept absolute paths or workspace-root-relative paths. Write only inside your output directory, including through bash and external tools. Do not edit shared BRIEF.md, STATE.md or source indexes. Do not start other agents.",

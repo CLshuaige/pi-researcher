@@ -3,8 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { fallbackProjectName, generateProjectName, beijingTimestamp } from './naming.ts';
-import type { Attachment, ChatMessage, MessageQuote } from '../shared/types.ts';
+import {
+  fallbackProjectName,
+  generateProjectName,
+  beijingTimestamp,
+  workspaceDirName,
+} from './naming.ts';
+import { isResearchWaiting, type Attachment, type ChatMessage, type MessageQuote } from '../shared/types.ts';
 import { listArtifacts } from './files.ts';
 import { completeDemoTools, seedDemo } from './demo.ts';
 import { PiBridge } from './pi.ts';
@@ -30,7 +35,8 @@ export class ResearchService {
   }
   async init() {
     await seedDemo(this.store);
-    for (const s of this.store.sessions.values()) await this.refresh(s);
+    this.store.draft();
+    for (const s of this.store.sessions.values()) if (s.phase !== 'archived') await this.refresh(s);
   }
   changed(s: StoredSession) {
     if (!this.store.sessions.has(s.id)) return;
@@ -64,13 +70,15 @@ export class ResearchService {
     }
   }
   async refresh(s: StoredSession) {
+    if (s.phase === 'archived' || (s.phase === 'draft' && !existsSync(this.store.workspace(s.id))))
+      return;
     if (this.refreshing.has(s.id)) return;
     this.refreshing.add(s.id);
     try {
       const workspace = this.store.workspace(s.id);
       await mkdir(workspace, { recursive: true });
       const files = await listArtifacts(workspace);
-      const before = JSON.stringify([s.artifacts, s.workflow, s.subSessions]);
+      const before = JSON.stringify([s.artifacts, s.workflow, s.subSessions, s.status]);
       s.artifacts = files;
       if (s.mode === 'pi') {
         try {
@@ -82,18 +90,20 @@ export class ResearchService {
         }
       }
       await refreshSubSessions(s, workspace);
-      if (JSON.stringify([s.artifacts, s.workflow, s.subSessions]) !== before) this.changed(s);
+      if (s.mode === 'pi' && (s.status === 'idle' || s.status === 'waiting'))
+        s.status = isResearchWaiting(s) ? 'waiting' : 'idle';
+      if (JSON.stringify([s.artifacts, s.workflow, s.subSessions, s.status]) !== before) this.changed(s);
     } finally {
       this.refreshing.delete(s.id);
     }
   }
   async rename(s: StoredSession, title: string) {
-    if (s.mode === 'demo') {
+    if (s.mode === 'demo' || s.phase === 'draft') {
       s.title = title;
       this.changed(s);
       return;
     }
-    if (['running', 'stopping'].includes(s.status))
+    if (['running', 'waiting', 'stopping'].includes(s.status))
       throw Object.assign(new Error('请先暂停研究，再重命名工作空间'), { status: 409 });
     const oldRoot = this.store.workspace(s.id);
     const jobs = join(oldRoot, '.research/jobs');
@@ -198,6 +208,8 @@ export class ResearchService {
       )
     )
       throw Object.assign(new Error('不支持的研究命令'), { status: 400 });
+    if (s.phase === 'draft')
+      throw Object.assign(new Error('请先发送研究消息，再执行研究命令'), { status: 409 });
     if (s.mode === 'demo') s.notice = '交互演示不调用真实研究命令。';
     else await this.bridge.command(s, normalized);
     this.changed(s);
@@ -208,7 +220,10 @@ export class ResearchService {
     attachments: Attachment[] = [],
     quote?: MessageQuote,
     quotes?: MessageQuote[],
+    requestId?: string,
   ) {
+    if (requestId && s.messages.some((m) => m.role === 'user' && m.requestId === requestId)) return;
+
     const explicit = text.trim().match(/^\/(?:researcher|research)(?=\s|$)\s*(.*)$/i);
     if (explicit) {
       if (
@@ -224,6 +239,18 @@ export class ResearchService {
     if (s.status === 'stopping')
       throw Object.assign(new Error('正在停止，请稍候再发送'), { status: 409 });
     await this.prepareName(s, text);
+    if (s.phase === 'draft') {
+      const oldRoot = this.store.workspace(s.id);
+      const dirName = workspaceDirName(s.title) + '_' + s.id.slice(0, 8);
+      const newRoot = join(this.store.workspacesRoot, dirName);
+      await mkdir(this.store.workspacesRoot, { recursive: true });
+      // Rename staging atomically; failures leave the draft editable and outside history.
+      if (existsSync(oldRoot)) await rename(oldRoot, newRoot);
+      else await mkdir(newRoot, { recursive: true });
+      s.workspaceDir = dirName;
+      s.phase = 'started';
+      delete s.draftAttachments;
+    }
     const wasRunning = s.status === 'running';
     const m: ChatMessage = {
       id: randomUUID(),
@@ -234,6 +261,7 @@ export class ResearchService {
       quotes,
       timestamp: Date.now(),
       queued: wasRunning,
+      ...(requestId ? { requestId } : {}),
     };
     if (s.messages.length === 0 && s.title === '新研究')
       s.title = fallbackProjectName(text) || attachments[0]?.name || '新研究';
@@ -241,6 +269,7 @@ export class ResearchService {
     s.status = 'running';
     delete s.error;
     if (s.mode === 'pi') delete s.notice;
+    this.store.save(s);
     this.changed(s);
     if (s.mode === 'demo') {
       if (wasRunning) s.notice = '交互演示：已收到纠偏，下一步将结合新消息继续。';
@@ -254,7 +283,7 @@ export class ResearchService {
         s.error = (error as Error).message;
         if (!wasRunning) s.status = 'idle';
         this.changed(s);
-        throw error;
+        // The message was accepted. Return its persisted session instead of inviting a duplicate retry.
       }
     }
     return m;
@@ -324,11 +353,39 @@ export class ResearchService {
       return this.edit(s, previous.id, previous.text);
     }
     if (!tool) throw Object.assign(new Error('步骤不存在'), { status: 404 });
+    if (tool.role !== 'tool')
+      throw Object.assign(new Error('此消息不是可重试的工具步骤'), { status: 400 });
+    if (tool.retryStatus === 'running') return;
     await this.stop(s);
-    await this.send(
-      s,
-      `请重试这一步：${tool.name}。上次输入：${JSON.stringify(tool.args || {})}。请先检查已有产物和状态，按当前目标重试，保留已有证据；不要直接覆盖已有实验。`,
-    );
+    const latest = s.messages.findLast(message => message.retryOf === tool.id);
+    if (latest) Object.assign(tool, { text: latest.text, args: latest.args, links: latest.links, status: latest.status });
+    // Retrying starts a new visible continuation at this step.
+    s.messages = s.messages.slice(0, s.messages.indexOf(tool) + 1);
+    const retained = new Set(s.messages.slice(0, -1).map(message => message.id));
+    s.subSessions = s.subSessions.filter(child => retained.has(child.toolCallId));
+    tool.retryAttempts = (tool.retryAttempts || 0) + 1;
+    tool.retryStatus = 'running';
+    tool.retryProgress = '正在恢复此处的会话，准备重新执行';
+    delete s.notice;
+    delete tool.retryError;
+    delete s.error;
+    this.changed(s);
+    if (s.mode === 'demo') {
+      tool.retryStatus = tool.status || 'completed';
+      s.notice = '交互演示不执行真实工具重试。';
+      this.changed(s);
+      return;
+    }
+    try {
+      await this.bridge.retryTool(s, tool, latest?.id || tool.id);
+    } catch (error) {
+      tool.retryStatus = 'failed';
+      delete tool.retryProgress;
+      s.status = 'idle';
+      tool.retryError = (error as Error).message;
+      this.changed(s);
+      throw error;
+    }
   }
   async setModel(s: StoredSession, model: string) {
     if (s.mode === 'pi') await this.bridge.setModel(s, model);

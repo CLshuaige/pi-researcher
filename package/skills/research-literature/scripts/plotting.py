@@ -29,7 +29,7 @@ def configure_chinese_font(text="中文图表", font_path=None):
         kpsewhich = shutil.which("kpsewhich")
         if kpsewhich:
             for name in ("FandolHei-Regular.otf", "FandolSong-Regular.otf"):
-                result = subprocess.run([kpsewhich, name], capture_output=True, text=True, timeout=15, check=False)
+                result = subprocess.run([kpsewhich, name], capture_output=True, text=True, check=False)
                 if result.returncode == 0 and result.stdout.strip():
                     candidates.append(Path(result.stdout.strip()))
         for family in ("Noto Sans CJK SC", "Source Han Sans SC", "AR PL UMing CN", "Microsoft YaHei", "PingFang SC"):

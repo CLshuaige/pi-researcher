@@ -165,13 +165,27 @@
   height: auto;
 }
 .rename-content {
-  padding: 20px;
+  padding: 20px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .rename-content input {
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  outline: none;
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.rename-content input:focus {
+  border-color: var(--cobalt);
+  box-shadow: 0 0 0 2px var(--cobalt-pale);
 }
 .toast-viewport {
   position: fixed;

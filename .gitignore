@@ -16,3 +16,5 @@ workspace/
 .venv/
 __pycache__/
 *.py[cod]
+**/.vite/
+**/tests/

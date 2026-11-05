@@ -1,18 +1,54 @@
 import { ToolResultCard, ToolCode } from './ToolResultCard';
+import { ChecklistView, isChecklistJson } from './ChecklistView';
 import { Reveal, Disclosure } from './ui/animated';
 import { FileIcon } from './FileIcon';
-import { useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Globe2,
   LoaderCircle,
   RotateCcw,
-  X,
 } from 'lucide-react';
 import type { ChatMessage, SourceLink } from '../../shared/types';
+
+export function groupAdjacentCommands(messages: ChatMessage[]): ChatMessage[][] {
+  const groups: ChatMessage[][] = [];
+  for (const message of messages) {
+    const previous = groups.at(-1);
+    if (message.role === 'tool' && message.name === 'bash' &&
+        previous?.[0].role === 'tool' && previous[0].name === 'bash') {
+      previous.push(message);
+    } else groups.push([message]);
+  }
+  return groups;
+}
+
+export function CommandGroup({ messages, renderMessage }: {
+  messages: ChatMessage[];
+  renderMessage: (message: ChatMessage) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const history = messages.slice(0, -1);
+  const latest = messages[messages.length - 1];
+  return (
+    <section className="command-group" aria-label={`执行命令，共 ${messages.length} 条`}>
+      {expanded && <div className="command-history">
+        {history.map(message => <Fragment key={message.id}>{renderMessage(message)}</Fragment>)}
+      </div>}
+      <button
+        className="command-history-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {expanded ? '收起' : '展开'}之前的 {history.length} 条命令
+      </button>
+      <Fragment key={latest.id}>{renderMessage(latest)}</Fragment>
+    </section>
+  );
+}
 
 export function toolTitle(m: ChatMessage) {
   const checklistActions: Record<string, string> = {
@@ -51,6 +87,18 @@ export function toolTitle(m: ChatMessage) {
     bash: '执行命令',
     ask_user: '等待你的决定',
   };
+  const agentActions: Record<string, string> = {
+    list: '查看可用代理',
+    get: '查看代理配置',
+    models: '查看代理模型',
+    guide: '查看代理说明',
+    status: '查看子任务状态',
+    steer: '补充子任务指令',
+    interrupt: '暂停子任务',
+    stop: '停止子任务',
+  };
+  if (m.name === 'subagent' && typeof m.args?.action === 'string' && agentActions[m.args.action])
+    return agentActions[m.args.action];
   const title = typeof m.args?.title === 'string' ? m.args.title.replace(/\s+/g, ' ').trim() : '';
   const checklistLabel =
     m.name === 'research_checklist'
@@ -127,10 +175,12 @@ function SourceGroup({ host, links }: { host: string; links: SourceLink[] }) {
 
 export function ToolStep({
   message: m,
+  prevChecklistText,
   onRetry,
   onPreviewFile,
 }: {
   message: ChatMessage;
+  prevChecklistText?: string;
   onRetry: () => void;
   onPreviewFile?: (path: string, name: string) => void;
 }) {
@@ -151,6 +201,7 @@ export function ToolStep({
   }
   const fileRefs = extractFileRefs(m);
   const detail =
+    (m.retryStatus === 'running' ? (m.retryProgress || `正在重试这一步（第 ${m.retryAttempts} 次）`) : '') ||
     m.description ||
     (typeof m.args?.query === 'string'
       ? m.args.query
@@ -166,14 +217,33 @@ export function ToolStep({
   return (
     <section className="tool-step" aria-label={toolTitle(m)}>
       <div className="tool-step-header">
-        <span className={`step-status ${m.status || 'pending'}`}>
-          {running ? (
-            <LoaderCircle size={17} className="spin" />
-          ) : completed ? (
-            <Check size={17} />
-          ) : (
-            <X size={15} />
-          )}
+        <span
+          className={`step-status ${m.status || 'pending'}`}
+          role="img"
+          aria-label={
+            running
+              ? '正在运行'
+              : completed
+                ? '已完成'
+                : m.status === 'failed'
+                  ? '需要关注'
+                  : m.status === 'cancelled'
+                    ? '已停止'
+                    : '等待中'
+          }
+          title={
+            running
+              ? '正在运行'
+              : completed
+                ? '已完成'
+                : m.status === 'failed'
+                  ? '需要关注，可展开查看详情'
+                  : m.status === 'cancelled'
+                    ? '已停止'
+                    : '等待中'
+          }
+        >
+          {running ? <LoaderCircle size={17} className="spin" /> : <span className="step-light" />}
         </span>
         <button className="step-heading" aria-expanded={open} onClick={() => setOpen(!open)}>
           <strong className={running ? 'running-title' : ''}>
@@ -193,7 +263,7 @@ export function ToolStep({
             className="icon-button step-retry-btn"
             aria-label={`重试${m.name}`}
             title="重试这一步"
-            disabled={retrying}
+            disabled={retrying || m.retryStatus === 'running'}
             onClick={async () => {
               setRetrying(true);
               try {
@@ -216,6 +286,11 @@ export function ToolStep({
           </button>
         </div>
       </div>
+      {m.retryAttempts ? (
+        <p className="tool-retry-note">
+          {m.retryError || (m.retryStatus === 'running' ? `第 ${m.retryAttempts} 次重试` : `已重试 ${m.retryAttempts} 次`)}
+        </p>
+      ) : null}
       {/* File references below the step header */}
       {fileRefs.length > 0 && (
         <div className="tool-file-refs">
@@ -241,30 +316,34 @@ export function ToolStep({
         </div>
       )}
       <Reveal open={open}>
-        <ToolResultCard message={m} label={toolTitle(m)}>
-          {groups.size > 0 ? (
-            <>
-              {[...groups].map(([host, links]) => (
-                <SourceGroup key={host} host={host} links={links} />
-              ))}
-              <Disclosure className="raw-tool-output" title="执行详情">
-                <div className="tool-output">
-                  <ToolCode>{m.text}</ToolCode>
-                </div>
-              </Disclosure>
-            </>
-          ) : (
-            <div className="tool-output">
-              {!m.text && running ? (
-                <span className="tool-summary">
-                  <LoaderCircle size={13} className="spin" /> 等待工具返回结果…
-                </span>
-              ) : (
-                <ToolCode>{m.text || '工具已结束，未返回文本。'}</ToolCode>
-              )}
-            </div>
-          )}
-        </ToolResultCard>
+        {isChecklistJson(m.text || '') ? (
+          <ChecklistView text={m.text || ''} prevText={prevChecklistText} />
+        ) : (
+          <ToolResultCard message={m} label={toolTitle(m)}>
+            {groups.size > 0 ? (
+              <>
+                {[...groups].map(([host, links]) => (
+                  <SourceGroup key={host} host={host} links={links} />
+                ))}
+                <Disclosure className="raw-tool-output" title="执行详情">
+                  <div className="tool-output">
+                    <ToolCode>{m.text}</ToolCode>
+                  </div>
+                </Disclosure>
+              </>
+            ) : (
+              <div className="tool-output">
+                {!m.text && running ? (
+                  <span className="tool-summary">
+                    <LoaderCircle size={13} className="spin" /> 等待工具返回结果…
+                  </span>
+                ) : (
+                  <ToolCode>{m.text || '工具已结束，未返回文本。'}</ToolCode>
+                )}
+              </div>
+            )}
+          </ToolResultCard>
+        )}
       </Reveal>
     </section>
   );
