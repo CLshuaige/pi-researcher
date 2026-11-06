@@ -1,3 +1,4 @@
+import { closePiSession } from '../../package/extensions/shared/pi-session.ts';
 import { beginSubSessions, updateSubSessions } from './sub-sessions.ts';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -822,11 +823,7 @@ export class PiBridge {
       }
       // Host shutdown is not a user pause. Let extensions detach and release
       // ownership before aborting the parent; native background children survive.
-      await live.session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
-      await live.session.abort();
-      await this.jobs.get(id);
-      live.unsubscribe();
-      live.session.dispose();
+      await closePiSession(live.session, live.unsubscribe, 'quit', true, () => this.jobs.get(id));
       if (s && resume) {
         s.status = 'interrupted';
         s.notice = '服务重启后将自动接续研究。';

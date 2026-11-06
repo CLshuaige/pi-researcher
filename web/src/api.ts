@@ -4,6 +4,7 @@ export interface UserSettings {
   providers: { id: string; name: string; configured: boolean }[];
 }
 import type {
+  PresentationState,
   Attachment,
   ConfigKey,
   ConfigResponse,
@@ -30,6 +31,15 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
 const post = <T>(path: string, body = {}) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 export const api = {
+  presentation: (id: string) => request<PresentationState>(`/sessions/${id}/presentation`),
+  presentationVisible: (id: string, visible: boolean, viewer: string) =>
+    post<PresentationState>(`/sessions/${id}/presentation/visible`, { visible, viewer }),
+  presentationRetry: (id: string, stageId?: string) =>
+    post<PresentationState>(`/sessions/${id}/presentation/retry`, { stageId }),
+  presentationDocument: (id: string, stage: string) =>
+    request<{ html: string; token: string; digest: string }>(
+      `/sessions/${id}/presentation/${stage}`,
+    ),
   userSettings: () => request<UserSettings>('/settings/user'),
   saveUserSettings: (settings: {
     profile: UserSettings['profile'];

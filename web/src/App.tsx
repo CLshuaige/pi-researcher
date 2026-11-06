@@ -23,11 +23,18 @@ import { PreviewPanel, type PreviewTab } from './components/PreviewPanel';
 import { ResearchControls } from './components/ResearchControls';
 import { GlobalSettingsPanel } from './components/GlobalSettingsPanel';
 import { Logo } from './components/Logo';
-import type { ResearchSession, SessionSummary, ModelOption } from '../shared/types';
+import type {
+  PresentationState,
+  ResearchSession,
+  SessionSummary,
+  ModelOption,
+} from '../shared/types';
 import { isResearchRunning } from '../shared/research';
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const viewer = useRef(crypto.randomUUID());
+  const [presentation, setPresentation] = useState<PresentationState>();
   const [session, setSession] = useState<ResearchSession>();
   const [loggedOut, setLoggedOut] = useState(false);
   const [error, setError] = useState('');
@@ -86,9 +93,9 @@ export default function App() {
       setShowArtifacts(false);
     } else if (window.innerWidth > 700) {
       setShowFlow(true);
-      setShowArtifacts(true);
+      setShowArtifacts(false);
     }
-  }, [isEmptySession, hasPreviewTabs, hasArtifacts]);
+  }, [activeId, isEmptySession]);
   // Resizable panel widths
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   useEffect(() => {
@@ -216,6 +223,13 @@ export default function App() {
     let cancelled = false;
     version.current = -1;
     setSession(undefined);
+    setPresentation(undefined);
+    api
+      .presentation(activeId)
+      .then((state) => {
+        if (!cancelled) setPresentation(state);
+      })
+      .catch(() => {});
     api
       .session(activeId)
       .then((s) => {
@@ -224,7 +238,7 @@ export default function App() {
       .catch((error) => {
         if (!cancelled) reportError(error.message);
       });
-    const source = new EventSource(`/api/sessions/${activeId}/events`);
+    const source = new EventSource(`/api/sessions/${activeId}/events?viewer=${viewer.current}`);
     source.addEventListener('snapshot', (event) => {
       if (!cancelled) {
         try {
@@ -235,6 +249,13 @@ export default function App() {
         }
       }
     });
+    source.addEventListener('presentation', (event) => {
+      if (!cancelled) {
+        try {
+          setPresentation(JSON.parse((event as MessageEvent).data));
+        } catch {}
+      }
+    });
     source.onopen = () => !cancelled && setConnected(true);
     source.onerror = () => !cancelled && setConnected(false);
     return () => {
@@ -242,6 +263,24 @@ export default function App() {
       source.close();
     };
   }, [activeId, accept, reportError]);
+  useEffect(() => {
+    if (!activeId) return;
+    const update = () => {
+      void api
+        .presentationVisible(
+          activeId,
+          connected && showFlow && !hasPreviewTabs && document.visibilityState === 'visible',
+          viewer.current,
+        )
+        .catch(() => {});
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      document.removeEventListener('visibilitychange', update);
+      void api.presentationVisible(activeId, false, viewer.current).catch(() => {});
+    };
+  }, [activeId, showFlow, hasPreviewTabs, connected]);
   function openPreviewFile(path: string, name: string) {
     if (!session) return;
     setInspectorView('preview');
@@ -586,6 +625,14 @@ export default function App() {
               {showFlow && (
                 <Workflow
                   key={`workflow-${session.id}`}
+                  sessionId={session.id}
+                  presentation={presentation}
+                  onPresentationRetry={(stage) => {
+                    void api
+                      .presentationRetry(session.id, stage)
+                      .then(setPresentation)
+                      .catch((e) => reportError(e.message));
+                  }}
                   running={isResearchRunning(session)}
                   artifacts={session.artifacts}
                   onPreviewFile={openPreviewFile}

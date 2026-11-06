@@ -1,3 +1,4 @@
+import { PresentationManager } from './presentation.ts';
 import { refreshSubSessions } from './sub-sessions.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -19,6 +20,7 @@ import { readChecklist } from './workflow.ts';
 export class ResearchService {
   readonly store: SessionStore;
   readonly bridge: PiBridge;
+  readonly presentation: PresentationManager;
   private listeners = new Map<string, Set<(s: StoredSession) => void>>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private demoRuns = new Map<string, AbortController>();
@@ -26,6 +28,7 @@ export class ResearchService {
   private refreshing = new Set<string>();
   constructor(root: string, dataDir: string) {
     this.store = new SessionStore(dataDir);
+    this.presentation = new PresentationManager(root, this.store);
     this.bridge = new PiBridge(
       root,
       this.store,
@@ -110,6 +113,7 @@ export class ResearchService {
         }
       }
       await refreshSubSessions(s, workspace);
+      void this.presentation.observe(s).catch(() => {});
       if (s.mode === 'pi' && (s.status === 'idle' || s.status === 'waiting'))
         s.status = isResearchWaiting(s) ? 'waiting' : 'idle';
       if (JSON.stringify([s.artifacts, s.workflow, s.subSessions, s.status]) !== before) this.changed(s);
@@ -125,6 +129,7 @@ export class ResearchService {
     }
     if (['running', 'waiting', 'stopping'].includes(s.status))
       throw Object.assign(new Error('请先暂停研究，再重命名工作空间'), { status: 409 });
+    await this.presentation.suspend(s);
     const oldRoot = this.store.workspace(s.id);
     const jobs = join(oldRoot, '.research/jobs');
     if (existsSync(jobs))
@@ -188,6 +193,7 @@ export class ResearchService {
       s.workspaceDir = dir;
     }
     s.title = title;
+    this.presentation.resume(s);
     this.changed(s);
     await this.refresh(s);
   }
@@ -231,7 +237,11 @@ export class ResearchService {
     if (s.phase === 'draft')
       throw Object.assign(new Error('请先发送研究消息，再执行研究命令'), { status: 409 });
     if (s.mode === 'demo') s.notice = '交互演示不调用真实研究命令。';
-    else await this.bridge.command(s, normalized);
+    else {
+      if (/^(pause|stop)$/.test(normalized)) await this.presentation.suspend(s);
+      await this.bridge.command(s, normalized);
+      if (normalized === 'resume') this.presentation.resume(s);
+    }
     this.changed(s);
   }
   async send(
@@ -259,6 +269,7 @@ export class ResearchService {
     if (s.status === 'stopping')
       throw Object.assign(new Error('正在停止，请稍候再发送'), { status: 409 });
     await this.prepareName(s, text);
+    const firstMessage = s.messages.length === 0;
     if (s.phase === 'draft') {
       const oldRoot = this.store.workspace(s.id);
       const dirName = workspaceDirName(s.title) + '_' + s.id.slice(0, 8);
@@ -286,6 +297,8 @@ export class ResearchService {
     if (s.messages.length === 0 && s.title === '新研究')
       s.title = fallbackProjectName(text) || attachments[0]?.name || '新研究';
     s.messages.push(m);
+    if (firstMessage && s.mode === 'pi') await this.presentation.enable(s).catch(() => {});
+    this.presentation.resume(s);
     s.status = 'running';
     delete s.error;
     if (s.mode === 'pi') delete s.notice;
@@ -341,6 +354,7 @@ export class ResearchService {
     setTimeout(tick, 650);
   }
   async stop(s: StoredSession) {
+    await this.presentation.suspend(s);
     if (s.mode === 'demo') {
       this.demoRuns.get(s.id)?.abort();
       this.demoRuns.delete(s.id);
@@ -354,6 +368,7 @@ export class ResearchService {
     const index = s.messages.findIndex((m) => m.id === messageId && m.role === 'user');
     if (index < 0) throw Object.assign(new Error('消息不存在'), { status: 404 });
     await this.stop(s);
+    await this.presentation.suspend(s, true).catch(() => {});
     if (s.mode === 'pi') {
       const manager = await this.bridge.rewind(s, s.messages[index]);
       if (manager) await this.bridge.replaceManager(s, manager);
@@ -377,6 +392,7 @@ export class ResearchService {
       throw Object.assign(new Error('此消息不是可重试的工具步骤'), { status: 400 });
     if (tool.retryStatus === 'running') return;
     await this.stop(s);
+    await this.presentation.suspend(s, true).catch(() => {});
     const latest = s.messages.findLast(message => message.retryOf === tool.id);
     if (latest) Object.assign(tool, { text: latest.text, args: latest.args, links: latest.links, status: latest.status });
     // Retrying starts a new visible continuation at this step.
@@ -398,6 +414,7 @@ export class ResearchService {
     }
     try {
       await this.bridge.retryTool(s, tool, latest?.id || tool.id, instructions);
+      this.presentation.resume(s);
     } catch (error) {
       tool.retryStatus = 'failed';
       delete tool.retryProgress;
@@ -421,6 +438,7 @@ export class ResearchService {
     await this.bridge.setThinkingLevel(s, level as any);
   }
   async remove(s: StoredSession) {
+    await this.presentation.remove(s).catch(() => {});
     if (s.mode === 'demo') await this.stop(s);
     else await this.bridge.remove(s);
     clearTimeout(this.timers.get(s.id));
@@ -430,6 +448,7 @@ export class ResearchService {
     await rm(join(this.store.dataDir, 'sessions', `${s.id}.json`), { force: true });
   }
   async close() {
+    await this.presentation.close();
     for (const controller of this.demoRuns.values()) controller.abort();
     await this.bridge.dispose();
     for (const timer of this.timers.values()) clearTimeout(timer);

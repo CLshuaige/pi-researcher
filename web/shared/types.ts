@@ -4,8 +4,9 @@ export type RunStatus = 'idle' | 'running' | 'waiting' | 'stopping' | 'interrupt
 export function isResearchWaiting(session: Pick<ResearchSession, 'workflow' | 'subSessions'>) {
   const state = session.workflow.control?.state;
   if (state === 'paused' || state === 'stopped' || state === 'completed') return false;
-  return state === 'waiting' || session.subSessions.some(child =>
-    child.status === 'running' || child.status === 'pending',
+  return (
+    state === 'waiting' ||
+    session.subSessions.some((child) => child.status === 'running' || child.status === 'pending')
   );
 }
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -74,7 +75,11 @@ export interface Workflow {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   source: 'default' | 'checklist' | 'demo';
-  control?: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; wakeAt?: number; reason?: string };
+  control?: {
+    state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed';
+    wakeAt?: number;
+    reason?: string;
+  };
 }
 export interface Artifact {
   path: string;
@@ -178,4 +183,39 @@ export interface SingleConfigResponse {
   key: ConfigKey;
   value: Record<string, unknown>;
   overridden: boolean;
+}
+
+export interface PresentationSource {
+  id: string;
+  path: string;
+  title: string;
+}
+export interface PresentationStage {
+  status: 'queued' | 'rendering' | 'ready' | 'failed';
+  sourceDigest?: string;
+  dependencies?: string[];
+  sessionFile?: string;
+  digest?: string;
+  updatedAt?: number;
+  error?: string;
+  sources: PresentationSource[];
+}
+export interface PresentationState {
+  enabled: boolean;
+  stages: Record<string, PresentationStage>;
+  facts: Record<string, Record<string, string | number>>;
+}
+
+/** Semantic roles keep their colors when optional research stages are omitted. */
+export function presentationRole(label: string) {
+  const roles = [
+    { role: 'task', color: '#3478d4', pattern: /任务|解析|task|scope/i },
+    { role: 'literature', color: '#8963bc', pattern: /文献|检索|literature|papers/i },
+    { role: 'hypothesis', color: '#bc8650', pattern: /假设|hypothes/i },
+    { role: 'method', color: '#349486', pattern: /方法|设计|method/i },
+    { role: 'experiment', color: '#c76579', pattern: /实验|试验|experiment/i },
+    { role: 'report', color: '#6673be', pattern: /报告|论文|写作|report/i },
+    { role: 'review', color: '#8c7898', pattern: /评审|审查|review/i },
+  ] as const;
+  return roles.find((item) => item.pattern.test(label)) || roles[0];
 }

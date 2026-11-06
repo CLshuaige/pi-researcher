@@ -37,6 +37,14 @@ npm --prefix web start
 
 Open [http://127.0.0.1:3001](http://127.0.0.1:3001). One server now serves both the built UI and API.
 
+## Research boards (Web only)
+
+New Web research enables an independent Presentation session. The host sends changed stage identity, user research questions and a project file inventory to this session; Research and CLI sessions do not load its Extension or Skill. The designer browses and reads actual workspace files, including paginated text/PDF and existing research figures. Each role uses its own theme color and icon; the generated sheet grows naturally with its content. Checklist content is only a short fallback before a board is published. The right inspector initially shows the nodes and research activity, with artifacts collapsed. Drag or scroll in either direction to pan the canvas; use +/- or pinch to zoom. Use the stage arrows to navigate; the resource trees remain below each board.
+
+Historical research is read-only until you click **生成展板**. Generated HTML replaces the current `.pi/presentation/stages/<stage>/index.html` inside that research workspace; there are no version directories. Snapshots, the manifest and independent Pi session records also live under `.pi/presentation/`. A separate model call uses the project's selected model when meaningful stage content changes, with a debounce and a minimum update interval; token-by-token chat updates do not trigger design calls. The previous board stays visible while updating or after a failure. Fullscreen preserves the node width from the inspector. Style-only updates can publish a CSS delta, preserving existing figures and content. Failed display runs can continue from their own presentation transcript; only relevant stage files and actually used materials trigger redraws. **更新展板** retries the display only.
+
+The display uses only its explicitly loaded `presentation-design` Skill and `presentation_list` / `presentation_read` / `presentation_publish` tools. Workspace materials are untrusted data. HTML is sanitized and rendered in a sandbox without same-origin privileges; only the host's bridge updates factual bindings and opens validated source previews. Closing/hiding the inspector or browser view cancels pending work. Research pause, stop, branch retry, project deletion and host shutdown cancel display work; invalidated jobs cannot publish into the new branch. Display errors never change Checklist or research messages.
+
 ## Layout
 
 - `src/components/`: UI and shared viewers/dialogs/file trees.

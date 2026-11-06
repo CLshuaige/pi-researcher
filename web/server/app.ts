@@ -145,11 +145,47 @@ export async function createApp(root: string, dataDir: string) {
       );
     send();
     const off = service.subscribe(s.id, send);
+    void service.presentation
+      .state(s)
+      .then((state) => {
+        if (!res.destroyed) res.write(`event: presentation\ndata: ${JSON.stringify(state)}\n\n`);
+      })
+      .catch(() => {});
+    const offPresentation = service.presentation.subscribe(s.id, (state) =>
+      res.write(`event: presentation\ndata: ${JSON.stringify(state)}\n\n`),
+    );
     const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15000);
     req.on('close', () => {
+      void service.presentation
+        .visible(s, false, String(req.query.viewer || 'default'))
+        .catch(() => {});
       clearInterval(heartbeat);
       off();
+      offPresentation();
     });
+  });
+  app.get('/api/sessions/:id/presentation', async (req, res) =>
+    res.json(await service.presentation.state(session(req))),
+  );
+  app.post('/api/sessions/:id/presentation/visible', async (req, res) => {
+    await service.presentation.visible(
+      session(req),
+      req.body.visible === true,
+      String(req.body.viewer || 'default'),
+    );
+    res.json(await service.presentation.state(session(req)));
+  });
+  app.post('/api/sessions/:id/presentation/retry', async (req, res) => {
+    const s = session(req);
+    if (req.body.stageId && !s.workflow.nodes.some((node) => node.id === req.body.stageId))
+      return res.status(400).json({ error: '研究阶段不存在' });
+    await service.presentation.retry(s, req.body.stageId);
+    res.json(await service.presentation.state(s));
+  });
+  app.get('/api/sessions/:id/presentation/:stageId', async (req, res) => {
+    res
+      .set('Cache-Control', 'no-store')
+      .json(await service.presentation.document(session(req), String(req.params.stageId)));
   });
   async function checkedAttachments(sid: string, raw: unknown): Promise<Attachment[]> {
     if (raw === undefined) return [];
@@ -228,7 +264,10 @@ export async function createApp(root: string, dataDir: string) {
   app.post('/api/sessions/:id/tools/:toolId/retry', async (req, res) => {
     const s = session(req);
     const instructions = req.body?.instructions;
-    if (instructions !== undefined && (typeof instructions !== 'string' || instructions.length > 12000))
+    if (
+      instructions !== undefined &&
+      (typeof instructions !== 'string' || instructions.length > 12000)
+    )
       throw Object.assign(new Error('重试补充说明必须为不超过 12000 字符的文本'), { status: 400 });
     await service.exclusive(s.id, () => service.retry(s, String(req.params.toolId), instructions));
     res.status(202).json(service.store.public(s));

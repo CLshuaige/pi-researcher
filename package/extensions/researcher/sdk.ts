@@ -1,5 +1,6 @@
+import { createManagedSession } from '../shared/pi-session.ts';
 import {
-  createAgentSession, createMcpExtension, DefaultResourceLoader, getAgentDir,
+  createMcpExtension, DefaultResourceLoader, getAgentDir,
   SessionManager, SettingsManager,
   type AgentSession, type ExtensionContext, type ExtensionFactory, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -71,16 +72,14 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
   const errors = loader.getExtensions().errors;
   if (errors.length) throw new Error(`Child extension loading failed: ${JSON.stringify(errors)}`);
   options.signal.throwIfAborted();
-  const { session } = await createAgentSession({
+  const managed = await createManagedSession({
     cwd: options.cwd, model, thinkingLevel: options.host.thinkingLevel,
     resourceLoader: loader, settingsManager: settings,
     sessionManager: options.sessionFile ? SessionManager.open(options.sessionFile) : SessionManager.create(options.cwd, options.sessionDir),
     tools: options.tools, customTools: options.customTools,
-  });
+  }, { signal: options.signal });
+  const { session } = managed;
   const before = sessionUsage(session);
-  let abortError: unknown;
-  const abort = () => { void session.abort().catch((error) => { abortError = error; }); };
-  options.signal.addEventListener("abort", abort, { once: true });
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "tool_execution_start") options.onProgress?.(`工具：${event.toolName}`);
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
@@ -98,7 +97,6 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
     options.signal.throwIfAborted();
     await session.prompt(options.prompt);
     options.signal.throwIfAborted();
-    if (abortError) throw abortError;
     const last = [...session.messages].reverse().find((message) => message.role === "assistant");
     if (last?.role === "assistant" && ["error", "aborted"].includes(last.stopReason)) throw new Error(last.errorMessage || `Child ${last.stopReason}`);
     return {
@@ -108,9 +106,8 @@ export async function runSdk(options: SdkRunOptions): Promise<{ text: string; us
   } finally {
     try { options.onUsage?.(addUsage(sessionUsage(session), before, -1)); }
     finally {
-      options.signal.removeEventListener("abort", abort);
       unsubscribe();
-      session.dispose();
+      await managed.close("quit", false);
     }
   }
 }

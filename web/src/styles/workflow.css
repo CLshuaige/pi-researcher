@@ -456,7 +456,6 @@
   }
 }
 
-
 /* ── Stage node rich content ──────────────────────────────────── */
 .flow-node .node-header {
   display: flex;
@@ -568,4 +567,159 @@
 .node-expand {
   pointer-events: all;
   cursor: pointer;
+}
+
+/* The canvas owns navigation; each research sheet grows with its actual content. */
+.flow-node.presentation-node,
+.flow-node.presentation-node[data-status] {
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: default;
+}
+.presentation-node-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 4px 9px;
+  color: var(--stage-color);
+}
+.presentation-node-label .node-navigate {
+  flex: 0 1 auto;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.presentation-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+.presentation-generate:hover {
+  color: var(--stage-color);
+  background: var(--panel);
+}
+.presentation-generate:disabled {
+  opacity: 0.6;
+}
+.presentation-sheet {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--stage-color) 35%, var(--line));
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 5px 20px #1c335108;
+}
+.presentation-node[data-status='completed'] .presentation-sheet {
+  border-color: var(--stage-color);
+}
+.presentation-node[data-status='running'] .presentation-sheet {
+  animation: presentation-breathe 2.6s ease-in-out infinite;
+}
+@keyframes presentation-breathe {
+  0%,
+  100% {
+    border-color: color-mix(in srgb, var(--stage-color) 40%, var(--panel));
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    border-color: var(--stage-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--stage-color) 10%, transparent);
+  }
+}
+.presentation-watermark {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  top: 4px;
+  transform: rotate(-17deg);
+  color: var(--stage-color);
+  opacity: 0.055;
+  pointer-events: none;
+}
+.presentation-pending {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  color: color-mix(in srgb, var(--stage-color) 40%, var(--panel));
+}
+.presentation-spinner {
+  animation: research-spin 1.8s linear infinite;
+}
+.presentation-frame-wrap {
+  display: block;
+  background: var(--panel);
+}
+.presentation-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  min-height: 0;
+}
+.presentation-node .presentation-error {
+  display: block;
+  margin: 0;
+  padding: 8px 14px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .presentation-node[data-status='running'] .presentation-sheet,
+  .presentation-spinner {
+    animation: none;
+  }
+}
+.presentation-stage-nav {
+  position: absolute;
+  z-index: 6;
+  top: 5px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.presentation-stage-nav button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.presentation-stage-nav button:disabled {
+  opacity: 0.35;
+}
+
+.presentation-fallback {
+  width: 100%;
+  padding: 24px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.presentation-fallback p {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.presentation-fallback ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
 }
