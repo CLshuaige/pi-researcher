@@ -2,6 +2,7 @@ import { open, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ChatMessage, StepStatus, SubSession } from '../shared/types.ts';
 import type { StoredSession } from './store.ts';
+import { researchAgentRole } from '../shared/research.ts';
 import { thinkingText } from './thinking.ts';
 import { flattenFiles } from './files.ts';
 
@@ -101,14 +102,15 @@ export function beginSubSessions(
       : [args];
   for (const [index, raw] of tasks.entries()) {
     const task = object(raw),
-      objective = String(task.objective || task.task || task.label || '研究子任务');
+      objective = String(task.objective || task.task || task.label || '研究子任务'),
+      skill = Array.isArray(task.skills) ? task.skills.join('、') : task.agent;
     session.subSessions.push({
       id: tasks.length === 1 ? callId : `${callId}-${index}`,
       toolCallId: callId,
       kind: name === 'research_delegate' ? 'delegate' : 'subagent',
-      label: objective.slice(0, 40),
+      label: researchAgentRole(skill)?.label || objective.slice(0, 40),
       objective,
-      skill: Array.isArray(task.skills) ? task.skills.join('、') : task.agent,
+      skill,
       status: index && Array.isArray(args.chain) ? 'pending' : 'running',
       messages: [],
       artifacts: [],
@@ -232,6 +234,11 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
         if (record.runId !== child.asyncRunId) throw new Error('Async run identity mismatch');
         child.status = childStatus(record.state);
         child.outcome = record.timedOut ? 'timed_out' : record.state;
+        const activeStep = record.steps?.find((step: { status?: string }) => step.status === 'running') || record.steps?.at(-1);
+        child.skill ||= activeStep?.agent;
+        child.lastActivityAt = Number(record.lastActivityAt || activeStep?.lastActivityAt) || undefined;
+        child.currentTool = record.currentTool || activeStep?.currentTool || undefined;
+        child.currentToolArgs = activeStep?.currentToolArgs || undefined;
         if (record.error) child.summary = String(record.error);
         const recent = record.steps?.flatMap((step: { recentOutput?: string[] }) => step.recentOutput || []);
         if (recent?.length) child.progress = recent.join('\n').slice(-1200);
@@ -247,7 +254,15 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
         for (const [index, path] of paths.entries()) {
           try {
             const transcriptRoot = session.sessionFile ? dirname(session.sessionFile) : directory;
-            messages.push(...childMessages(await sessionEntries(transcriptRoot, path), `${child.id}-${index}`));
+            const entries = await sessionEntries(transcriptRoot, path);
+            // Revival reuses the transcript. A finished card must not acquire
+            // the later run's messages while its terminal status stays frozen.
+            const snapshot = child.endedAt ? entries.filter(entry => {
+              const item = object(entry);
+              const time = Number(object(item.message).timestamp) || Date.parse(item.timestamp) || 0;
+              return time <= child.endedAt!;
+            }) : entries;
+            messages.push(...childMessages(snapshot, `${child.id}-${index}`));
           } catch { /* Progress is still available from the verified status record. */ }
         }
         if (messages.length) child.messages = messages.slice(-160);
@@ -287,11 +302,13 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
     } catch {
       /* A live record or session may not have been written yet. */
     }
-    child.artifacts = liveArtifacts(child, workspace, files.map(file => file.path), outputDir);
+    const reportRoots = files.filter(file => ['report.json', 'build-status.json'].includes(basename(file.path)) &&
+      file.updatedAt >= (child.startedAt || Infinity)).map(file => dirname(file.path));
+    child.artifacts = liveArtifacts(child, workspace, files.map(file => file.path), outputDir, reportRoots);
   }
 }
 
-function liveArtifacts(child: SubSession, workspace: string, files: string[], outputDir?: string) {
+function liveArtifacts(child: SubSession, workspace: string, files: string[], outputDir?: string, reportRoots: string[] = []) {
   const relativePath = (path: string) => relative(resolve(workspace), resolve(workspace, path)).split(sep).join('/');
   const candidates = new Set((child.artifacts || []).map(relativePath));
   for (const message of child.messages) {
@@ -305,6 +322,9 @@ function liveArtifacts(child: SubSession, workspace: string, files: string[], ou
     roots.push('literature.md', 'literature-review.pdf', 'literature', 'research/literature.md', 'research/literature');
   if (skills.some(skill => /(?:^|[:/])research-experiment$/.test(skill.trim())))
     roots.push('experiment', 'result.md');
+  if (skills.some(skill => /(?:^|[:/])research-report$/.test(skill.trim())))
+    roots.push('report', ...reportRoots.filter(root =>
+      !root.startsWith('literature/') && files.includes(`${root}/report.json`) && files.includes(`${root}/main.tex`)));
   // Only advertise existing, previewable files from the workspace scan. Reads,
   // internal logs, credentials and virtual environments are not deliverables.
   return files.filter(path => candidates.has(path) || roots.some(root => path === root || path.startsWith(root + '/')));

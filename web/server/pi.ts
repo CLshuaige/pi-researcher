@@ -216,6 +216,11 @@ export class PiBridge {
             inheritSkills: false,
             ...overrides['research-literature'],
           },
+          'research-report': {
+            extensions: searchExtensions,
+            inheritSkills: false,
+            ...overrides['research-report'],
+          },
           'research-experiment': {
             extensions: searchExtensions.filter(path => path.includes('/pi-web-access/')),
             inheritSkills: false,
@@ -282,6 +287,8 @@ export class PiBridge {
       s.sessionFile && existsSync(s.sessionFile)
         ? SessionManager.open(s.sessionFile)
         : SessionManager.create(cwd, join(this.store.dataDir, 'pi-sessions', s.id));
+    if (s.resumeOnRestart)
+      manager.appendCustomEntry('research-host-resume', { pending: true });
     const { session } = await createAgentSession({
       cwd,
       agentDir,
@@ -616,10 +623,20 @@ export class PiBridge {
       }
     }
   }
-  async command(s: StoredSession, command: string) {
+  async command(s: StoredSession, command: string, background = false) {
     const live = await this.ensure(s);
-    await live.session.prompt(`/research ${command}`);
-    await this.refresh(s);
+    const work = live.session.prompt(`/research ${command}`).then(() => this.refresh(s));
+    if (!background) { await work; return; }
+    // Restart recovery must not hold the session's input lock for an entire
+    // research turn; the user can still steer or pause while it runs.
+    const job = work.catch(error => {
+      s.status = 'interrupted';
+      s.error = `研究接续失败：${(error as Error).message}`;
+      this.changed(s);
+    }).finally(() => {
+      if (this.jobs.get(s.id) === job) this.jobs.delete(s.id);
+    });
+    this.jobs.set(s.id, job);
   }
   async send(s: StoredSession, m: ChatMessage) {
     const live = await this.ensure(s);
@@ -661,6 +678,7 @@ export class PiBridge {
     }
   }
   async stop(s: StoredSession) {
+    delete s.resumeOnRestart;
     const pending = this.opening.get(s.id);
     if (pending) await pending.catch(() => {});
     const live = this.live.get(s.id);
@@ -688,7 +706,7 @@ export class PiBridge {
     this.mapEntries(s, live);
     this.changed(s);
   }
-  async retryTool(s: StoredSession, target: ChatMessage, sourceCallId = target.id) {
+  async retryTool(s: StoredSession, target: ChatMessage, sourceCallId = target.id, instructions?: string) {
     let live = await this.ensure(s);
     const manager = live.session.sessionManager;
     const entry = manager.getBranch().find(entry => entry.type === 'message' && entry.message.role === 'assistant' && entry.message.content.some(block => block.type === 'toolCall' && block.id === sourceCallId))
@@ -707,7 +725,7 @@ export class PiBridge {
       id: randomUUID(),
       role: 'user',
       timestamp: Date.now(),
-      text: `/research --retry 请重试工具步骤 ${target.name}。原输入：${JSON.stringify(target.args || {})}。原结果摘要：${JSON.stringify(target.text.slice(-8000))}。若原步骤启动了文献子代理且已有运行ID，优先恢复同一任务，不重复启动。先核对当前 Checklist、已有产物和最新参数，在当前目标允许时执行该步骤；前端已清除这个位置之后的旧对话，从这里生成新的后续步骤。不要引用或复述旧后续对话；保留并核验已有研究文件，不回退 Checklist 控制状态。若无法安全执行，请明确说明原因。实际匹配的工具结果会显示在原卡片；这是一条隐藏的重试控制指令。`,
+      text: `/research --retry 请重试工具步骤 ${target.name}。原输入：${JSON.stringify(target.args || {})}。原结果摘要：${JSON.stringify(target.text.slice(-8000))}。若原步骤启动了文献子代理且已有运行ID，优先恢复同一任务，不重复启动。先核对当前 Checklist、已有产物和最新参数，在当前目标允许时执行该步骤；前端已清除这个位置之后的旧对话，从这里生成新的后续步骤。不要引用或复述旧后续对话；保留并核验已有研究文件，不回退 Checklist 控制状态。若无法安全执行，请明确说明原因。实际匹配的工具结果会显示在原卡片；这是一条隐藏的重试控制指令。${instructions?.trim() ? `\n\n用户授权的本次重试补充要求：\n${instructions.trim()}` : ''}`,
     };
     try {
       await this.send(s, control);
@@ -794,10 +812,26 @@ export class PiBridge {
     s.sessionFile = manager.getSessionFile();
   }
   async dispose() {
-    for (const s of this.store.sessions.values()) if (this.live.has(s.id)) await this.stop(s);
-    for (const live of this.live.values()) {
+    for (const [id, live] of this.live) {
+      const s = this.store.sessions.get(id);
+      const resume = !!s && (s.status === 'running' || s.status === 'waiting') &&
+        !['paused', 'stopped', 'completed'].includes(s.workflow.control?.state || '');
+      if (s && resume) {
+        s.resumeOnRestart = true;
+        this.store.save(s);
+      }
+      // Host shutdown is not a user pause. Let extensions detach and release
+      // ownership before aborting the parent; native background children survive.
+      await live.session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
+      await live.session.abort();
+      await this.jobs.get(id);
       live.unsubscribe();
       live.session.dispose();
+      if (s && resume) {
+        s.status = 'interrupted';
+        s.notice = '服务重启后将自动接续研究。';
+        this.store.save(s);
+      }
     }
     this.live.clear();
   }

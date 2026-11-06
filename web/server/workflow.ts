@@ -100,6 +100,7 @@ export function parseChecklist(value: unknown): Workflow {
         ? {
             control: {
               state: checklist.control.state,
+              ...(typeof checklist.control.reason === 'string' ? { reason: checklist.control.reason } : {}),
               ...(Number.isFinite(checklist.control.wakeAt)
                 ? { wakeAt: checklist.control.wakeAt }
                 : {}),

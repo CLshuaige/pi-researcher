@@ -2,6 +2,8 @@ import { ToolResultCard, ToolCode } from './ToolResultCard';
 import { ChecklistView, isChecklistJson } from './ChecklistView';
 import { Reveal, Disclosure } from './ui/animated';
 import { FileIcon } from './FileIcon';
+import { Markdown } from './Markdown';
+import { ThinkingBlock } from './ThinkingBlock';
 import { Fragment, useState, type ReactNode } from 'react';
 import {
   ChevronDown,
@@ -15,10 +17,12 @@ import type { ChatMessage, SourceLink } from '../../shared/types';
 
 export function groupAdjacentCommands(messages: ChatMessage[]): ChatMessage[][] {
   const groups: ChatMessage[][] = [];
-  for (const message of messages) {
+  for (const [index, message] of messages.entries()) {
     const previous = groups.at(-1);
-    if (message.role === 'tool' && message.name === 'bash' &&
-        previous?.[0].role === 'tool' && previous[0].name === 'bash') {
+    const command = message.role === 'tool' && message.name === 'bash';
+    const next = messages[index + 1];
+    const progressBetweenCommands = message.role === 'assistant' && next?.role === 'tool' && next.name === 'bash';
+    if ((command || progressBetweenCommands) && previous?.[0].role === 'tool' && previous[0].name === 'bash') {
       previous.push(message);
     } else groups.push([message]);
   }
@@ -32,10 +36,16 @@ export function CommandGroup({ messages, renderMessage }: {
   const [expanded, setExpanded] = useState(false);
   const history = messages.slice(0, -1);
   const latest = messages[messages.length - 1];
+  const commandCount = messages.filter(message => message.role === 'tool').length;
   return (
-    <section className="command-group" aria-label={`执行命令，共 ${messages.length} 条`}>
+    <section className="command-group" aria-label={`执行命令，共 ${commandCount} 条`}>
       {expanded && <div className="command-history">
-        {history.map(message => <Fragment key={message.id}>{renderMessage(message)}</Fragment>)}
+        {history.map(message => <Fragment key={message.id}>
+          {message.role === 'assistant' ? <div className="command-history-note">
+            <ThinkingBlock text={message.thinking} status={message.thinkingStatus} />
+            {message.text && <Markdown>{message.text}</Markdown>}
+          </div> : renderMessage(message)}
+        </Fragment>)}
       </div>}
       <button
         className="command-history-toggle"
@@ -43,14 +53,14 @@ export function CommandGroup({ messages, renderMessage }: {
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        {expanded ? '收起' : '展开'}之前的 {history.length} 条命令
+        {expanded ? '收起' : '展开'}之前的 {commandCount - 1} 条命令与进展记录
       </button>
       <Fragment key={latest.id}>{renderMessage(latest)}</Fragment>
     </section>
   );
 }
 
-export function toolTitle(m: ChatMessage) {
+export function toolTitle(m: Pick<ChatMessage, 'name' | 'args'>) {
   const checklistActions: Record<string, string> = {
     help: '查看清单说明',
     read: '读取研究状态',

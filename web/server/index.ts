@@ -33,6 +33,8 @@ const port = Number(process.env.API_PORT || 3001);
 const server = app.listen(port, '127.0.0.1', () =>
   console.log(`格悟 API，http://127.0.0.1:${port}`),
 );
+// Rebind persisted native runs after the server can already serve its UI.
+void service.resumeAfterRestart().catch(error => console.error('研究自动接续失败：', error));
 const refresh = setInterval(() => {
   for (const s of service.store.sessions.values()) void service.refresh(s).catch(() => {});
 }, 1600);

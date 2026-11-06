@@ -227,7 +227,10 @@ export async function createApp(root: string, dataDir: string) {
   });
   app.post('/api/sessions/:id/tools/:toolId/retry', async (req, res) => {
     const s = session(req);
-    await service.exclusive(s.id, () => service.retry(s, String(req.params.toolId)));
+    const instructions = req.body?.instructions;
+    if (instructions !== undefined && (typeof instructions !== 'string' || instructions.length > 12000))
+      throw Object.assign(new Error('重试补充说明必须为不超过 12000 字符的文本'), { status: 400 });
+    await service.exclusive(s.id, () => service.retry(s, String(req.params.toolId), instructions));
     res.status(202).json(service.store.public(s));
   });
   app.post('/api/sessions/:id/questions/:questionId', (req, res) => {

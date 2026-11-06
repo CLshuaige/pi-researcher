@@ -74,7 +74,7 @@ export interface Workflow {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   source: 'default' | 'checklist' | 'demo';
-  control?: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; wakeAt?: number };
+  control?: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; wakeAt?: number; reason?: string };
 }
 export interface Artifact {
   path: string;
@@ -108,6 +108,9 @@ export interface SubSession {
   asyncRunId?: string;
   asyncDir?: string;
   progress?: string;
+  lastActivityAt?: number;
+  currentTool?: string;
+  currentToolArgs?: string;
   summary?: string;
   outcome?: string;
   artifacts?: string[];

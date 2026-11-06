@@ -23,6 +23,12 @@
 .command-history {
   margin-bottom: 12px;
 }
+.command-history-note {
+  margin: 10px 0 10px 34px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .tool-step + .tool-step {
   margin-top: 8px;
 }

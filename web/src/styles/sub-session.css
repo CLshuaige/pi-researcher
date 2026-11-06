@@ -42,11 +42,23 @@
 }
 
 .sub-session {
+  position: relative;
+  isolation: isolate;
   border: 1px solid var(--line);
   background: var(--panel, white);
   border-radius: 14px;
   overflow: hidden;
   margin: 10px 0 10px 34px;
+}
+.sub-session-watermark {
+  position: absolute;
+  top: -20px;
+  left: -18px;
+  color: var(--cobalt);
+  opacity: 0.09;
+  transform: rotate(-18deg);
+  pointer-events: none;
+  z-index: -1;
 }
 .sub-session-header {
   width: 100%;
@@ -138,6 +150,28 @@
   border-radius: 50%;
   background: var(--cobalt);
   animation: child-breathe 1.4s ease-in-out infinite;
+}
+.child-live-detail, .child-event-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+.child-live-detail time, .child-event-content small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.child-event-content small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.child-progress-comment {
+  margin: 8px 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 @keyframes child-breathe {
   50% {

@@ -635,6 +635,20 @@
   color: var(--muted);
   font-size: 12px;
 }
+.research-paused-note {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.research-paused-note strong {
+  color: var(--ink-2);
+}
 .agent-breathing-dot {
   width: 11px;
   height: 11px;

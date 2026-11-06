@@ -6,6 +6,8 @@ import { defaultWorkflow } from './workflow.ts';
 
 export interface StoredSession extends ResearchSession {
   sessionFile?: string;
+  /** Host restart recovery intent; explicit user pause clears it. */
+  resumeOnRestart?: boolean;
   /** Workspace directory name (timestamp_projectName), relative to project root. */
   workspaceDir?: string;
 }
@@ -27,6 +29,9 @@ export class SessionStore {
         ) as StoredSession;
         if (!/^[a-zA-Z0-9-]+$/.test(session.id)) continue;
         if (session.status === 'running' || session.status === 'waiting' || session.status === 'stopping') {
+          if (session.status !== 'stopping' &&
+              !['paused', 'stopped', 'completed'].includes(session.workflow.control?.state || ''))
+            session.resumeOnRestart = true;
           session.status = 'interrupted';
           session.notice = '上次运行已中断，可以发送消息继续研究。';
           for (const m of session.messages) {
@@ -115,7 +120,7 @@ export class SessionStore {
       .map(({ id, title, updatedAt, mode, status }) => ({ id, title, updatedAt, mode, status }));
   }
   public(session: StoredSession): ResearchSession {
-    const { sessionFile: _, ...result } = session;
+    const { sessionFile: _, resumeOnRestart: _restart, ...result } = session;
     return { ...result, workspacePath: this.workspace(session.id) };
   }
   workspace(id: string) {

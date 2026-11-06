@@ -38,6 +38,26 @@ export class ResearchService {
     this.store.draft();
     for (const s of this.store.sessions.values()) if (s.phase !== 'archived') await this.refresh(s);
   }
+  async resumeAfterRestart() {
+    await Promise.all([...this.store.sessions.values()]
+      .filter(s => s.mode === 'pi' && s.phase === 'started' && s.resumeOnRestart)
+      .map(s => this.exclusive(s.id, async () => {
+        // Explicit pause/stop can arrive while another restore is queued.
+        if (!s.resumeOnRestart) return;
+        s.notice = '正在接续服务重启前的研究。';
+        this.changed(s);
+        try {
+          await this.bridge.command(s, 'resume', true);
+          delete s.resumeOnRestart;
+          if (s.notice === '正在接续服务重启前的研究。') delete s.notice;
+        } catch (error) {
+          delete s.resumeOnRestart;
+          s.status = 'interrupted';
+          s.notice = `自动接续失败，可发送消息继续：${(error as Error).message}`;
+        }
+        this.changed(s);
+      })));
+  }
   changed(s: StoredSession) {
     if (!this.store.sessions.has(s.id)) return;
     s.revision++;
@@ -342,7 +362,7 @@ export class ResearchService {
     s.messages = s.messages.slice(0, index);
     return this.send(s, text, attachments, quote, quotes);
   }
-  async retry(s: StoredSession, toolId: string) {
+  async retry(s: StoredSession, toolId: string, instructions?: string) {
     const tool = s.messages.find((m) => m.id === toolId);
     if (tool?.role === 'assistant') {
       const previous = s.messages
@@ -377,7 +397,7 @@ export class ResearchService {
       return;
     }
     try {
-      await this.bridge.retryTool(s, tool, latest?.id || tool.id);
+      await this.bridge.retryTool(s, tool, latest?.id || tool.id, instructions);
     } catch (error) {
       tool.retryStatus = 'failed';
       delete tool.retryProgress;

@@ -599,6 +599,12 @@ export function Conversation({
                     {composerStatus === 'waiting' && <span>后台任务进行中，完成后继续研究</span>}
                   </div>
                 )}
+                {s.status === 'idle' && s.workflow.control?.state === 'paused' && (
+                  <div className="research-paused-note" role="status">
+                    <strong>研究已暂停</strong>
+                    <span>{s.workflow.control.reason || s.notice || '可补充要求后继续。'}</span>
+                  </div>
+                )}
                 {s.question && (
                   <section className="question-panel" aria-label="需要你的决定">
                     <strong>{s.question.title}</strong>

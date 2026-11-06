@@ -102,7 +102,7 @@ python3 <skill-dir>/scripts/report_generation.py compile --output report
 
 中文编译需要可用的 XeLaTeX（或 `--engine lualatex`）、BibTeX（有引用时）、ctex/xeCJK 或 LuaTeX 中文支持、Fandol 中文字体、TeX Gyre 西文字体与常用 LaTeX 包：amsmath、amssymb、amsthm、graphicx、booktabs、hyperref、natbib、times、xcolor、eso-pic、forloop、url、caption。中文预设在原 ICML 样式之后显式选择 TeX Gyre 的 OpenType 字体，避免传统 Times 设置在 Unicode 编码下丢失字体形状。简要安装与字体检查见 [README 报告编译环境](../../../README.md#报告编译环境)。脚本不联网安装，也不改变全局配置。
 
-`compile` 先做静态校验，再运行 XeLaTeX → BibTeX（有引用时）→ XeLaTeX 两遍；没有引用时运行 XeLaTeX 两遍。命令关闭 shell escape，每条有独立超时。临时构建目录与字体缓存都在 `report/` 内，结束后清理；完整命令输出保存在 `build.log`，不清除诊断依据。工具错误、缺字体、未解析引用或缺字都返回非零与 `ok: false`，不能称为成功生成 PDF。Overfull/Underfull 会保留为警告，需检查版面。
+`compile` 先做静态校验，再运行 XeLaTeX → BibTeX（有引用时）→ XeLaTeX 两遍；没有引用时运行 XeLaTeX 两遍。命令关闭 shell escape，默认不设编译时限；仅显式传入 `--timeout` 时限制每条命令。临时构建目录与字体缓存都在 `report/` 内，结束后清理；完整命令输出保存在 `build.log`，不清除诊断依据。工具错误、缺字体、未解析引用或缺字都返回非零与 `ok: false`，不能称为成功生成 PDF。Overfull/Underfull 会保留为警告，需检查版面。
 
 源文件仍为 `main.tex`，编译命令通过 `-jobname=report` 直接生成 `report.pdf` 及 `report.aux`、`report.log` 等文件，BibTeX 同样处理 `report` 作业。整个编译流程都不生成 `main.pdf`。诊断检查通过后，把临时构建目录中的 `report.pdf` 原样保存到输出目录，不再次转换、压缩或重排版；成功编译时会清理旧版本遗留的 `main.pdf`。`build-status.json` 的 `pdf` 和 `report_pdf` 都指向唯一的 `report.pdf`。
 

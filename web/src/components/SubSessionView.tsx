@@ -1,9 +1,9 @@
-import { RESEARCH_STAGE_LABELS } from '../../shared/research';
+import { RESEARCH_STAGE_LABELS, researchAgentRole } from '../../shared/research';
 import { useEffect, useState } from 'react';
 import { Collapsible } from '@animate-ui/react/primitives/radix-ui/collapsible';
 import { Tabs } from '@animate-ui/react/primitives/radix-ui/tabs';
-import { ChevronDown, LoaderCircle, Circle, Bot, Clock3 } from 'lucide-react';
-import type { SubSession } from '../../shared/types';
+import { ChevronDown, LoaderCircle, Circle, Bot, Clock3, BookOpen, FlaskConical, FilePenLine, Lightbulb, Compass, ClipboardList, ScanSearch } from 'lucide-react';
+import type { ChatMessage, SubSession } from '../../shared/types';
 import { Markdown } from './Markdown';
 import { FileIcon } from './FileIcon';
 import { Disclosure } from './ui/animated';
@@ -14,12 +14,28 @@ function duration(start: number, end: number) {
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
+function toolDetail(message: ChatMessage) {
+  const args = message.args || {};
+  const path = typeof args.path === 'string' ? args.path : '';
+  if (path) return path.split('/').slice(-3).join('/');
+  const value = args.query || args.command || args.url || args.objective || '';
+  return String(value).replace(/^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*&&\s*/, '').replace(/\s+/g, ' ').slice(0, 180);
+}
 const outcomes: Record<string, string> = {
   partial: '待补充',
   not_started: '未执行',
   blocked: '已阻塞',
   timed_out: '已超时',
   queued: '排队中',
+};
+const roleIcons: Record<string, typeof Bot> = {
+  'research-task': ClipboardList,
+  'research-literature': BookOpen,
+  'research-hypothesis': Lightbulb,
+  'research-method': Compass,
+  'research-experiment': FlaskConical,
+  'research-report': FilePenLine,
+  'research-review': ScanSearch,
 };
 const stages = {
   running: '进行中',
@@ -35,6 +51,9 @@ export function SubSessionView({
   subSession: SubSession;
   onPreviewFile?: (path: string, name: string) => void;
 }) {
+  const role = researchAgentRole(sub.skill);
+  const RoleIcon = roleIcons[role?.name || ''] || Bot;
+  const title = role?.label || (sub.skill ? sub.skill.split(/[:/]/).at(-1) : '研究助手');
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (sub.status !== 'running') return;
@@ -44,11 +63,15 @@ export function SubSessionView({
   const running = sub.status === 'running',
     files = sub.artifacts || [];
   const tools = sub.messages.filter((m) => m.role === 'tool').slice(-6);
+  const latestTool = tools.at(-1);
+  const latestComment = sub.messages.filter(m => m.role === 'assistant' && m.text.trim()).at(-1)?.text;
+  const lastActivity = sub.lastActivityAt || latestTool?.timestamp;
   const summary =
     sub.summary ||
     (!running ? sub.messages.filter((m) => m.role === 'assistant').at(-1)?.text : undefined);
   return (
-    <Collapsible.Root defaultOpen className="sub-session" data-status={sub.status}>
+    <Collapsible.Root defaultOpen className="sub-session" data-status={sub.status} data-role={role?.name || 'custom'}>
+      <RoleIcon className="sub-session-watermark" size={100} strokeWidth={1} aria-hidden="true" />
       <Collapsible.Trigger className="sub-session-header">
         <span className="sub-session-icon">
           {running ? (
@@ -61,7 +84,7 @@ export function SubSessionView({
             <Bot size={16} />
           )}
         </span>
-        <span className="sub-session-title">{sub.label}</span>
+        <span className="sub-session-title">{title}</span>
         <span className={`sub-session-status ${sub.status}`}>
           {outcomes[sub.outcome || ''] || stages[sub.status]}
         </span>
@@ -72,8 +95,8 @@ export function SubSessionView({
           <div className="sub-session-meta">
             <span>
               {sub.skill
-                ?.split('、')
-                .map((skill) => RESEARCH_STAGE_LABELS[skill] || skill)
+                ?.split(/[、,]/)
+                .map((skill) => { const name = skill.trim().split(/[:/]/).at(-1) || ''; return RESEARCH_STAGE_LABELS[name] || skill; })
                 .join('、') || '研究子任务'}
             </span>
             <span>
@@ -81,32 +104,51 @@ export function SubSessionView({
               {duration(sub.startedAt, sub.endedAt || now)}
             </span>
           </div>
-          {sub.objective && sub.objective !== sub.label && (
+          {sub.objective && sub.objective !== title && (
             <p className="sub-session-objective">{sub.objective}</p>
           )}
           <Tabs.Root defaultValue="progress">
             <Tabs.List className="sub-session-tabs" aria-label="子任务内容">
               <Tabs.Trigger value="progress">进展</Tabs.Trigger>
               <Tabs.Trigger value="logs">执行记录 {sub.messages.length || ''}</Tabs.Trigger>
-              <Tabs.Trigger value="files">交付文件 {files.length || ''}</Tabs.Trigger>
+              <Tabs.Trigger value="files">产物 {files.length || ''}</Tabs.Trigger>
             </Tabs.List>
             <Tabs.Content value="progress" className="sub-session-pane">
               {running && (
                 <div className="sub-session-live">
                   <span className="child-pulse" />
-                  <span>{sub.progress || '正在启动子任务，等待实际进展…'}</span>
+                  <div className="child-live-detail">
+                    <strong>{sub.currentTool
+                      ? `正在${toolTitle({ name: sub.currentTool })}`
+                      : latestTool ? '等待下一步输出' : '正在启动子任务'}</strong>
+                    {latestTool && <span>
+                      {latestTool.status === 'running' ? '正在执行' : latestTool.status === 'failed' ? '最近失败' : '最近完成'}：{toolTitle(latestTool)}
+                      {toolDetail(latestTool) && ` · ${toolDetail(latestTool)}`}
+                    </span>}
+                    {lastActivity && <time dateTime={new Date(lastActivity).toISOString()}>
+                      最后活动 {new Date(lastActivity).toLocaleTimeString('zh-CN', { hour12: false })}
+                      {' · '}{duration(lastActivity, now)}前
+                    </time>}
+                  </div>
                 </div>
               )}
+              {running && latestComment && <p className="child-progress-comment">{latestComment.slice(0, 240)}{latestComment.length > 240 ? '…' : ''}</p>}
               {tools.length > 0 && (
                 <ol className="child-timeline">
                   {tools.map((m) => (
                     <li key={m.id} data-status={m.status}>
                       <span className="child-event-dot" />
-                      <span>{toolTitle(m)}</span>
+                      <span className="child-event-content">
+                        <span>{toolTitle(m)}</span>
+                        {toolDetail(m) && <small title={toolDetail(m)}>{toolDetail(m)}</small>}
+                      </span>
                     </li>
                   ))}
                 </ol>
               )}
+              {running && sub.progress && <Disclosure title="原始进度输出" defaultOpen={false} className="child-tool">
+                <pre>{sub.progress}</pre>
+              </Disclosure>}
               {summary && (
                 <div className="sub-session-summary">
                   <Markdown>{summary}</Markdown>

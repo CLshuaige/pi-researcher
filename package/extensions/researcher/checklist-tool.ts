@@ -11,7 +11,7 @@ const Definition = Type.Object({
   evidence: Type.Optional(ModuleSchema.properties.evidence),
   acceptance: Type.Optional(ModuleSchema.properties.acceptance), reason: Type.Optional(Type.String()),
 });
-export const ChecklistParameters = Type.Object({
+const ChecklistActionParameters = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 12, description: 'Optional display-only action title, at most 12 characters. Use a short Chinese action phrase without execution status; the UI derives status from the actual result and falls back to the action name when omitted. Never replaces reason or acceptance.' })),
   action: Type.Union([Type.Literal("help"), Type.Literal("read"), Type.Literal("init"), Type.Literal("repair"), Type.Literal("plan"), Type.Literal("start"), Type.Literal("update"), Type.Literal("accept"), Type.Literal("resolve")]),
   expectedRevision: Type.Optional(Type.Integer({ minimum: 1, description: 'Use the revision from the latest tool result or checkpoint. On conflict read again; never guess.' })),
@@ -20,11 +20,22 @@ export const ChecklistParameters = Type.Object({
   modules: Type.Optional(Type.Array(Definition, { minItems: 1, description: 'plan only: ordered complete list of module definitions. Preserve existing IDs.' })),
   moduleId: Type.Optional(Type.String({ description: 'start/update/accept: must be currentModule.id.' })),
   status: Type.Optional(Type.Union(ModuleSchema.properties.status.anyOf, { description: 'update only. Do not copy current status into accept: accept always completes after validation and ignores redundant status.' })),
-  evidence: Type.Optional(ModuleSchema.properties.evidence),
-  acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'Exactly one verified explanation per criterion, in criteria order. reason is an audit note, not acceptance. Omitted values reuse saved acceptance.' })),
+  evidence: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'REQUIRED for accept: actual verified workspace file paths or source URLs. Submit explicitly together with acceptance; reason is not evidence.' })),
+  acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'REQUIRED for accept: exactly one verified explanation per criterion, in criteria order. Always submit explicitly with evidence; reason is an audit note, not acceptance.' })),
   instructionId: Type.Optional(Type.String({ minLength: 1, description: 'REQUIRED for resolve: copy an exact ID from the latest pendingInstructions. Never guess or omit it; reason records its resolution.' })),
 }, { additionalProperties: false });
-export type ChecklistArguments = Static<typeof ChecklistParameters>;
+// Keep the flat catalog (and all existing action fields) for provider compatibility.
+// Model-issued acceptance must carry its verified evidence explicitly. Legacy
+// programmatic calls still reuse saved values through ChecklistActionParameters.
+export const ChecklistParameters = Type.Object(ChecklistActionParameters.properties, {
+  additionalProperties: false,
+  anyOf: [
+    { properties: { action: { enum: ['help', 'read', 'init', 'repair', 'plan', 'start', 'update', 'resolve'] } } },
+    { properties: { action: { const: 'accept' }, evidence: { minItems: 1 }, acceptance: { minItems: 1 } },
+      required: ['action', 'moduleId', 'expectedRevision', 'reason', 'evidence', 'acceptance'] },
+  ],
+});
+export type ChecklistArguments = Static<typeof ChecklistActionParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
 For each call, provide title when possible: a Chinese action phrase of at most 12 characters, e.g. "规划研究阶段" or "核验训练产物". title is optional display metadata; omit completion/failure claims. The program determines execution status and uses a fixed action label when title is absent. reason remains the mutation rationale/audit note or instruction resolution, never a title or acceptance explanation.
 Use ONE mutation per tool result, not a batch. In examples replace expectedRevision:1 with the revision in the latest result/checkpoint. On conflict read again; never guess or use repair for conflicts.
@@ -37,7 +48,7 @@ Use ONE mutation per tool result, not a batch. In examples replace expectedRevis
 - Update fields: {"action":"update","expectedRevision":1,"reason":"Collected evidence","moduleId":"M1","status":"awaiting_acceptance","evidence":["research/result.md"]}.
   Omitted fields are preserved. blocked/skipped require a concrete reason. Do not send completed here. Change objective/skills/criteria/dependencies using plan, not update/accept.
 - Accept: {"action":"accept","expectedRevision":1,"reason":"Verified source","moduleId":"M1","evidence":["research/result.md"],"acceptance":["Original source supports criterion 1"]}.
-  Automatically sets completed; omit status (redundant status is ignored). reason does not replace acceptance. Omitted evidence/acceptance reuse saved values, which must still pass validation. Start first. Requires one nonempty explanation per criterion, existing evidence, no active module tasks. Acceptance cannot change criteria. Then start the next module.
+  Automatically sets completed; omit status (redundant status is ignored). For accept this tool REQUIRES moduleId, expectedRevision, reason, evidence and acceptance together. Always explicitly submit both arrays, even when previously saved. reason does not replace acceptance. Start first. Requires one nonempty explanation per criterion, existing evidence, no active module tasks. Acceptance cannot change criteria. Then start the next module.
 - Resolve user input: {"action":"resolve","expectedRevision":1,"reason":"Explained how this request was handled","instructionId":"I-..."}.
   instructionId is required: copy the exact id from pendingInstructions in the latest result/checkpoint; I-... is a placeholder, not an ID. Resolve one instruction per call. status does not resolve an instruction. Optional objective changes the global goal and reopens modules. objective is accepted only in init/resolve.
 - Recover externally edited/deleted JSON: {"action":"repair"}; restores the committed snapshot and preserves rejected content.
@@ -45,7 +56,7 @@ Use moduleId plus top-level fields; the old module parameter is rejected. Paths 
 
 export function applyChecklistAction(store: ChecklistStore, p: ChecklistArguments) {
   // Also validate direct/programmatic callers; SDK validates provider calls before execute.
-  if (!Value.Check(ChecklistParameters, p)) throw new Error('Invalid arguments. Use action: help for the exact JSON protocol.');
+  if (!Value.Check(ChecklistActionParameters, p)) throw new Error('Invalid arguments. Use action: help for the exact JSON protocol.');
   if (p.action === 'read') return store.read();
   if (p.action === 'repair') return store.repair();
   if (p.action === 'init') return store.initialize(p.objective ?? '');
@@ -135,14 +146,27 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
           : 'There are no pending instructions to resolve. Read current state and follow nextAction; do not invent an instructionId.',
       };
     }
-    if (attempted?.action === 'accept' && m && attempted.moduleId === m.id) {
+    if (attempted?.action === 'accept' && m) {
       const effective = { ...m, evidence: Array.isArray(attempted.evidence) && attempted.evidence.every(x => typeof x === 'string') ? attempted.evidence : m.evidence, acceptance: Array.isArray(attempted.acceptance) && attempted.acceptance.every(x => typeof x === 'string') ? attempted.acceptance : m.acceptance };
+      const requiredFields = ['action', 'moduleId', 'expectedRevision', 'reason', 'evidence', 'acceptance'];
+      const missingFields = requiredFields.filter(field => attempted[field as keyof ChecklistArguments] === undefined);
+      const invalidFields = requiredFields.filter(field => attempted[field as keyof ChecklistArguments] !== undefined &&
+        (!Value.Check(ChecklistActionParameters.properties[field as keyof typeof ChecklistActionParameters.properties], attempted[field as keyof ChecklistArguments]) ||
+          (field === 'reason' && typeof attempted.reason === 'string' && !attempted.reason.trim()) ||
+          (field === 'evidence' && Array.isArray(attempted.evidence) && !attempted.evidence.length) ||
+          (field === 'acceptance' && Array.isArray(attempted.acceptance) && attempted.acceptance.length !== m.criteria.length)));
+      const retryTemplate = { action: 'accept', moduleId: m.id, expectedRevision: c!.revision,
+        reason: typeof attempted.reason === 'string' ? attempted.reason.trim() : '', evidence: effective.evidence, acceptance: effective.acceptance };
       acceptanceRequirements = {
+        requiredFields, missingFields, invalidFields, retryTemplate,
+        templateNeedsCompletion: !retryTemplate.reason || acceptanceProblems(store, effective).length > 0,
+        criterionChecks: m.criteria.map((criterion, index) => ({ index, criterion,
+          explanation: effective.acceptance[index] ?? null })),
         moduleId: m.id, criteria: m.criteria, requiredAcceptanceCount: m.criteria.length,
         evidence: effective.evidence, acceptance: effective.acceptance,
         problems: acceptanceProblems(store, effective),
         ignoredFields: attempted.status === undefined ? [] : ['status'],
-        instruction: 'Submit action=accept with the latest expectedRevision, moduleId, reason, verified evidence and exactly one acceptance explanation per criterion. Omitted arrays reuse saved values. Do not invent evidence; reason cannot replace acceptance. Omit status.',
+        instruction: 'Read the current Checklist, verify actual evidence and complete retryTemplate before submitting. Submit all requiredFields, with exactly one verified acceptance explanation per criterion. Empty arrays or reason alone cannot pass. The template revision is a snapshot, not permission to overwrite a concurrent change. Child suggestions are not manager verification. Never repeat the incomplete call.',
       };
     }
   } catch { nextAction = 'repair'; }

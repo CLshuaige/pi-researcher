@@ -21,7 +21,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 
 from latex.presets import Journal, get_preset
 from latex.validation import (
-    CITATIONS, FORBIDDEN_BODY, check_paper, local_path, strip_comments, validate_sources,
+    CITATIONS, FORBIDDEN_BODY, bib_keys, check_paper, local_path, strip_comments, validate_sources,
 )
 from prompts.paper_writing import STAGES, build_prompt
 
@@ -180,6 +180,19 @@ def generate_main_tex(manifest: dict, sections: list[dict], has_bibliography: bo
     )
 
 
+def validate_reference_catalog(context: dict, bibliography: str) -> None:
+    catalog = context.get("reference_catalog", [])
+    if not isinstance(catalog, list) or any(
+        not isinstance(entry, dict) or not isinstance(entry.get("key"), str) or not entry["key"].strip()
+        for entry in catalog
+    ):
+        raise ValueError("reference_catalog must be a list of entries with nonempty BibTeX keys")
+    missing = sorted({entry["key"] for entry in catalog} - set(bib_keys(bibliography)))
+    if missing:
+        raise ValueError("Reference catalog contains undefined BibTeX keys: " + ", ".join(missing) +
+                         ". Reconcile source locators with the verified bibliography and update context.json before writing or rendering.")
+
+
 def render_report(manifest_path: Path, output: Path, force: bool = False) -> dict:
     manifest_path = manifest_path.resolve()
     manifest = read_json(manifest_path)
@@ -207,6 +220,8 @@ def render_report(manifest_path: Path, output: Path, force: bool = False) -> dic
         sources[filename] = required_text(local_path(base, filename).read_text(encoding="utf-8"), filename)
     bib_file = manifest.get("bibliography", "references.bib")
     bibliography = local_path(base, bib_file).read_text(encoding="utf-8") if bib_file else ""
+    if (base / "context.json").exists():
+        validate_reference_catalog(read_json(local_path(base, "context.json")), bibliography)
     figures = manifest.get("figures", [])
     if not isinstance(figures, list):
         raise ValueError("figures must be a list")
@@ -377,7 +392,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "prompt":
-            print(build_prompt(args.stage, read_json(args.context)))
+            context = read_json(args.context)
+            if (args.context.parent / "references.bib").exists():
+                validate_reference_catalog(context, local_path(args.context.parent, "references.bib").read_text(encoding="utf-8"))
+            print(build_prompt(args.stage, context))
             return 0
         if args.command == "init":
             result = init_report(args.output, args.language)
