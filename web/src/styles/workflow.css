@@ -302,6 +302,29 @@
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
+.research-activity-resize {
+  display: grid;
+  place-items: center;
+  flex: 0 0 9px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+  background: var(--panel);
+}
+.research-activity-resize span {
+  width: 34px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.research-activity-resize:hover span,
+.research-activity-resize:focus-visible span {
+  background: var(--muted);
+}
+.research-activity-resize:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: -2px;
+}
 .research-activity-toggle {
   display: flex;
   align-items: center;
@@ -350,6 +373,7 @@
   transform: rotate(180deg);
 }
 .research-activity-body {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -661,6 +685,54 @@
 .presentation-frame-wrap {
   display: block;
   background: var(--panel);
+}
+.presentation-content-viewport {
+  position: relative;
+  height: var(--presentation-content-height, 320px);
+  overflow: hidden;
+}
+.presentation-content-viewport[data-expanded='true'] {
+  height: auto;
+  overflow: visible;
+}
+.presentation-content-viewport[data-overflow='true']:not([data-expanded='true'])::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 64px;
+  background: linear-gradient(transparent, var(--panel) 78%);
+  content: '';
+  pointer-events: none;
+}
+.presentation-content-inner {
+  min-height: 100%;
+}
+.presentation-content-toggle {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 7px;
+  left: 0;
+  display: block;
+  width: max-content;
+  margin: auto;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--stage-color) 28%, var(--line));
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--stage-color);
+  font-size: 11px;
+  cursor: pointer;
+}
+.presentation-content-viewport[data-expanded='true'] .presentation-content-toggle {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  margin: 8px auto;
+}
+.presentation-content-toggle:hover {
+  background: var(--panel-soft);
 }
 .presentation-frame {
   display: block;

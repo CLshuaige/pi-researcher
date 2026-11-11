@@ -47,6 +47,7 @@ import { getStageStartMessages } from '../lib/research-navigation';
 type StageNode = Node<WorkflowNode & Record<string, unknown>, 'stage'>;
 const STAGE_GAP = 72;
 const RESOURCE_GAP = 28;
+const PRESENTATION_CONTENT_HEIGHT = 1280;
 const ROLE_ICONS = {
   task: Target,
   literature: LibraryBig,
@@ -64,6 +65,9 @@ function Stage({ data }: NodeProps<StageNode>) {
   const theme = presentationRole(data.label),
     Icon = ROLE_ICONS[theme.role];
   const element = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const [contentExpanded, setContentExpanded] = useState(false);
+  const [contentOverflows, setContentOverflows] = useState(false);
   const reportHeight = data.onHeight as (id: string, height: number) => void;
   useEffect(() => {
     if (!element.current) return;
@@ -76,6 +80,22 @@ function Stage({ data }: NodeProps<StageNode>) {
     observer.observe(element.current);
     return () => observer.disconnect();
   }, [data.id, reportHeight]);
+  useEffect(() => {
+    setContentExpanded(false);
+  }, [board?.digest]);
+  useEffect(() => {
+    const inner = content.current;
+    if (!inner) return;
+    const measure = () => {
+      const overflows = inner.scrollHeight > PRESENTATION_CONTENT_HEIGHT + 1;
+      setContentOverflows(overflows);
+      if (!overflows) setContentExpanded(false);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(inner);
+    measure();
+    return () => observer.disconnect();
+  }, [board?.digest, data.description, data.criteria]);
   return (
     <div
       ref={element}
@@ -85,7 +105,7 @@ function Stage({ data }: NodeProps<StageNode>) {
       data-optional={!!data.optional}
       aria-label={data.label}
     >
-      <Handle type="target" position={Position.Left} id="left" />
+      <Handle type="target" position={Position.Left} id="left" style={{ top: 130 }} />
       <div className="presentation-node-label">
         <Icon size={15} strokeWidth={1.7} />
         <button
@@ -118,35 +138,58 @@ function Stage({ data }: NodeProps<StageNode>) {
           size={105}
           strokeWidth={0.8}
         />
-        {board?.digest ? (
-          <PresentationView
-            sessionId={data.sessionId as string}
-            stageId={data.id}
-            stage={board}
-            facts={data.facts as Record<string, string | number>}
-            onPreviewFile={preview}
-          />
-        ) : (
-          <div
-            className="presentation-pending"
-            aria-label={busy ? '正在绘制研究内容' : '尚未生成展板'}
-          >
-            {busy ? (
-              <LoaderCircle size={22} className="presentation-spinner" />
+        <div
+          className="presentation-content-viewport"
+          data-expanded={contentExpanded}
+          data-overflow={contentOverflows}
+          style={
+            {
+              '--presentation-content-height': `${PRESENTATION_CONTENT_HEIGHT}px`,
+            } as React.CSSProperties
+          }
+        >
+          <div className="presentation-content-inner" ref={content}>
+            {board?.digest ? (
+              <PresentationView
+                sessionId={data.sessionId as string}
+                stageId={data.id}
+                stage={board}
+                facts={data.facts as Record<string, string | number>}
+                onPreviewFile={preview}
+              />
             ) : (
-              <section className="presentation-fallback" aria-label="阶段摘要">
-                <p>{data.description}</p>
-                {!!data.criteria?.length && (
-                  <ul>
-                    {data.criteria.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
+              <div
+                className="presentation-pending"
+                aria-label={busy ? '正在绘制研究内容' : '尚未生成展板'}
+              >
+                {busy ? (
+                  <LoaderCircle size={22} className="presentation-spinner" />
+                ) : (
+                  <section className="presentation-fallback" aria-label="阶段摘要">
+                    <p>{data.description}</p>
+                    {!!data.criteria?.length && (
+                      <ul>
+                        {data.criteria.map((item, i) => (
+                          <li key={i}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
                 )}
-              </section>
+              </div>
             )}
           </div>
-        )}
+          {contentOverflows && (
+            <button
+              className="presentation-content-toggle nodrag nopan"
+              type="button"
+              aria-expanded={contentExpanded}
+              onClick={() => setContentExpanded((expanded) => !expanded)}
+            >
+              {contentExpanded ? '收起内容' : '展开内容'}
+            </button>
+          )}
+        </div>
         {board?.error && (
           <p className="presentation-error" role="status">
             {board.error}
@@ -154,7 +197,7 @@ function Stage({ data }: NodeProps<StageNode>) {
         )}
       </article>
       <Handle type="source" position={Position.Bottom} id="bottom" />
-      <Handle type="source" position={Position.Right} id="right" />
+      <Handle type="source" position={Position.Right} id="right" style={{ top: 130 }} />
     </div>
   );
 }
@@ -284,29 +327,35 @@ function FlowCanvas({
       return nodes.map((node) => ({ ...node, measured: measurements.get(node.id) }));
     });
   }, [nodes, setRenderedNodes]);
-  const edges = useMemo(
-    () => [
+  const edges = useMemo(() => {
+    const researchRunning = workflow.control
+      ? ['running', 'waiting'].includes(workflow.control.state)
+      : running;
+    return [
       ...workflow.edges.map((e, i) => {
         const source = workflow.nodes.find((n) => n.id === e.source);
         const target = workflow.nodes.find((n) => n.id === e.target);
-        const color =
-          source?.status === 'completed'
-            ? target?.status === 'running'
-              ? '#1769ff'
-              : '#33bb7a'
+        const activeEdge = source?.status === 'completed' && target?.status === 'running';
+        const animated = activeEdge && researchRunning;
+        const color = activeEdge
+          ? researchRunning
+            ? '#1769ff'
+            : '#c9d0dc'
+          : source?.status === 'completed'
+            ? '#33bb7a'
             : '#c9d0dc';
         return {
           id: `edge-${i}`,
           source: e.source,
           target: e.target,
-          type: 'smoothstep',
+          type: 'straight',
           sourceHandle: 'right',
           targetHandle: 'left',
-          animated: target?.status === 'running',
+          animated,
           style: {
             stroke: color,
             strokeWidth: 1.5,
-            strokeDasharray: e.optional ? '5 4' : undefined,
+            strokeDasharray: animated || (!activeEdge && e.optional) ? '5 4' : undefined,
           },
           markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
         };
@@ -324,9 +373,8 @@ function FlowCanvas({
           style: { stroke: '#a8b9d2', strokeWidth: 1.3, strokeDasharray: undefined },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#a8b9d2', width: 12, height: 12 },
         })),
-    ],
-    [workflow, nodes],
-  );
+    ];
+  }, [workflow, nodes, running]);
   return (
     <div className="flow-canvas" ref={element} data-testid="flow-canvas">
       {!nodes.length && (
