@@ -24,17 +24,10 @@ const ChecklistActionParameters = Type.Object({
   acceptance: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'REQUIRED for accept: exactly one verified explanation per criterion, in criteria order. Always submit explicitly with evidence; reason is an audit note, not acceptance.' })),
   instructionId: Type.Optional(Type.String({ minLength: 1, description: 'REQUIRED for resolve: copy an exact ID from the latest pendingInstructions. Never guess or omit it; reason records its resolution.' })),
 }, { additionalProperties: false });
-// Keep the flat catalog (and all existing action fields) for provider compatibility.
-// Model-issued acceptance must carry its verified evidence explicitly. Legacy
-// programmatic calls still reuse saved values through ChecklistActionParameters.
-export const ChecklistParameters = Type.Object(ChecklistActionParameters.properties, {
-  additionalProperties: false,
-  anyOf: [
-    { properties: { action: { enum: ['help', 'read', 'init', 'repair', 'plan', 'start', 'update', 'resolve'] } } },
-    { properties: { action: { const: 'accept' }, evidence: { minItems: 1 }, acceptance: { minItems: 1 } },
-      required: ['action', 'moduleId', 'expectedRevision', 'reason', 'evidence', 'acceptance'] },
-  ],
-});
+// Keep the provider schema flat for compatibility. Model-issued acceptance
+// requires explicit evidence and acceptance arrays in the controller; direct
+// programmatic calls may still reuse saved values through ChecklistActionParameters.
+export const ChecklistParameters = ChecklistActionParameters;
 export type ChecklistArguments = Static<typeof ChecklistActionParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
 For each call, provide title when possible: a Chinese action phrase of at most 12 characters, e.g. "规划研究阶段" or "核验训练产物". title is optional display metadata; omit completion/failure claims. The program determines execution status and uses a fixed action label when title is absent. reason remains the mutation rationale/audit note or instruction resolution, never a title or acceptance explanation.

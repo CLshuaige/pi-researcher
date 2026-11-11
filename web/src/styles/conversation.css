@@ -623,8 +623,92 @@
   margin-bottom: 0.65em;
 }
 .conversation-composer {
+  --checklist-inset: var(--radius-composer);
+  --checklist-gutter: 30px;
   flex-shrink: 0;
   width: 100%;
+}
+.checklist-dock {
+  width: calc(100% - 2 * (var(--checklist-gutter) + var(--checklist-inset)));
+  max-width: calc(850px - 2 * var(--checklist-inset));
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--panel);
+}
+.checklist-dock-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  background: var(--panel-soft);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+.checklist-dock-toggle:hover {
+  background: var(--hover);
+}
+.checklist-dock-toggle:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: -2px;
+}
+.checklist-dock-toggle > svg {
+  flex-shrink: 0;
+  color: var(--cobalt);
+}
+.checklist-dock-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.checklist-dock-status {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.checklist-dock-panel {
+  max-height: min(36dvh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-bottom: 1px solid var(--line);
+}
+.checklist-dock-panel .cl-journal {
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--panel);
+}
+.checklist-dock-panel .cl-watermark,
+.checklist-dock-panel .cl-objective {
+  display: none;
+}
+.checklist-dock-panel .cl-journal-inner {
+  gap: 12px;
+}
+.checklist-dock-panel .cl-heading {
+  padding-left: 0;
+}
+.checklist-dock + .composer-area {
+  padding-top: 0;
+}
+@media (max-width: 640px) {
+  .conversation-composer {
+    --checklist-inset: 22px;
+    --checklist-gutter: 12px;
+  }
 }
 .agent-pending {
   min-height: 25px;

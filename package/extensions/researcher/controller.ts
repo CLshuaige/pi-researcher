@@ -605,6 +605,8 @@ export class ResearchController {
         if (p.action === 'help') return { content: [{ type: 'text', text: checklistGuide }], details: { guide: checklistGuide } };
         if (!this.active || !this.store) return { content: [{ type: 'text', text: 'Activate with /researcher, or send a new instruction after interruption.' }], details: {}, isError: true };
         try {
+          if (p.action === 'accept' && (!p.evidence?.length || !p.acceptance?.length))
+            throw new Error('Accept requires explicitly supplied nonempty evidence and acceptance arrays.');
           if (p.action === 'accept' && this.moduleSettings().interactionMode === 'review') {
             const c = this.store.read();
             if (!c || c.revision !== p.expectedRevision || currentModule(c)?.id !== p.moduleId)

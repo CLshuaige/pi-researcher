@@ -1,8 +1,8 @@
 import { Hint } from './ui/animated';
 import { useEffect, useRef, useState } from 'react';
-import { Download, Folder, PackageOpen, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, Download, Folder, PackageOpen, X } from 'lucide-react';
 import { api } from '../api';
-import { FileTree, flatten } from './FileTree';
+import { FileTree, flatten, setFoldersExpanded } from './FileTree';
 import type { Artifact } from '../../shared/types';
 
 export function Artifacts({
@@ -19,6 +19,7 @@ export function Artifacts({
   onPreviewFile: (path: string, name: string) => void;
 }) {
   const [fresh, setFresh] = useState(new Set<string>());
+  const [folderExpansion, setFolderExpansion] = useState<{ expanded: boolean; version: number }>();
   const prior = useRef<Map<string, number> | undefined>(undefined);
   const freshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
@@ -44,6 +45,38 @@ export function Artifacts({
         <div className="section-header">
           <h2>研究产物</h2>
           <div className="flow-header-controls">
+            <Hint label="折叠所有目录">
+              <button
+                className="icon-button"
+                aria-label="折叠所有目录"
+                title="折叠所有目录"
+                onClick={() => {
+                  setFoldersExpanded(artifacts, sessionId, false);
+                  setFolderExpansion((state) => ({
+                    expanded: false,
+                    version: (state?.version || 0) + 1,
+                  }));
+                }}
+              >
+                <ChevronsDownUp size={17} />
+              </button>
+            </Hint>
+            <Hint label="展开所有目录">
+              <button
+                className="icon-button"
+                aria-label="展开所有目录"
+                title="展开所有目录"
+                onClick={() => {
+                  setFoldersExpanded(artifacts, sessionId, true);
+                  setFolderExpansion((state) => ({
+                    expanded: true,
+                    version: (state?.version || 0) + 1,
+                  }));
+                }}
+              >
+                <ChevronsUpDown size={17} />
+              </button>
+            </Hint>
             <a
               className="icon-button"
               href={api.download(sessionId)}
@@ -66,6 +99,7 @@ export function Artifacts({
               artifacts={artifacts}
               sessionId={sessionId}
               fresh={fresh}
+              folderExpansion={folderExpansion}
               onPreview={(file) => onPreviewFile(file.path, file.name)}
             />
           </div>

@@ -1,5 +1,4 @@
 import { ToolResultCard, ToolCode } from './ToolResultCard';
-import { ChecklistView, isChecklistJson } from './ChecklistView';
 import { Reveal, Disclosure } from './ui/animated';
 import { FileIcon } from './FileIcon';
 import { Markdown } from './Markdown';
@@ -185,16 +184,14 @@ function SourceGroup({ host, links }: { host: string; links: SourceLink[] }) {
 
 export function ToolStep({
   message: m,
-  checklistState,
   onRetry,
   onPreviewFile,
 }: {
   message: ChatMessage;
-  checklistState?: { text: string; prevText?: string };
   onRetry: () => void;
   onPreviewFile?: (path: string, name: string) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(m.name !== 'research_checklist');
   const [retrying, setRetrying] = useState(false);
   const running = m.status === 'running';
   const completed = m.status === 'completed';
@@ -326,37 +323,30 @@ export function ToolStep({
         </div>
       )}
       <Reveal open={open}>
-        {isChecklistJson(m.text || '') ? (
-          <ChecklistView
-            text={checklistState?.text || m.text || ''}
-            prevText={checklistState?.prevText}
-          />
-        ) : (
-          <ToolResultCard message={m} label={toolTitle(m)}>
-            {groups.size > 0 ? (
-              <>
-                {[...groups].map(([host, links]) => (
-                  <SourceGroup key={host} host={host} links={links} />
-                ))}
-                <Disclosure className="raw-tool-output" title="执行详情">
-                  <div className="tool-output">
-                    <ToolCode>{m.text}</ToolCode>
-                  </div>
-                </Disclosure>
-              </>
-            ) : (
-              <div className="tool-output">
-                {!m.text && running ? (
-                  <span className="tool-summary">
-                    <LoaderCircle size={13} className="spin" /> 等待工具返回结果…
-                  </span>
-                ) : (
-                  <ToolCode>{m.text || '工具已结束，未返回文本。'}</ToolCode>
-                )}
-              </div>
-            )}
-          </ToolResultCard>
-        )}
+        <ToolResultCard message={m} label={toolTitle(m)}>
+          {groups.size > 0 ? (
+            <>
+              {[...groups].map(([host, links]) => (
+                <SourceGroup key={host} host={host} links={links} />
+              ))}
+              <Disclosure className="raw-tool-output" title="执行详情">
+                <div className="tool-output">
+                  <ToolCode>{m.text}</ToolCode>
+                </div>
+              </Disclosure>
+            </>
+          ) : (
+            <div className="tool-output">
+              {!m.text && running ? (
+                <span className="tool-summary">
+                  <LoaderCircle size={13} className="spin" /> 等待工具返回结果…
+                </span>
+              ) : (
+                <ToolCode>{m.text || '工具已结束，未返回文本。'}</ToolCode>
+              )}
+            </div>
+          )}
+        </ToolResultCard>
       </Reveal>
     </section>
   );

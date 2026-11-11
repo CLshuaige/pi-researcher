@@ -39,7 +39,7 @@ import { SelectionToolbar } from './SelectionToolbar';
 import { SubSessionView } from './SubSessionView';
 import { copyText } from '../lib/clipboard';
 import { ThinkingBlock } from './ThinkingBlock';
-import { getLatestChecklistState } from './ChecklistView';
+import { ChecklistDock, getLatestChecklistState } from './ChecklistView';
 import { isResearchRunning } from '../../shared/research';
 import type {
   Attachment,
@@ -290,6 +290,14 @@ export function Conversation({
   };
   const composer = (
     <div ref={composerArea} className="conversation-composer">
+      {checklistState && (
+        <ChecklistDock
+          key={s.id}
+          text={checklistState.text}
+          prevText={checklistState.prevText}
+          controlState={s.workflow.control?.state}
+        />
+      )}
       <Composer
         sessionId={s.id}
         draft={s.phase === 'draft'}
@@ -504,9 +512,6 @@ export function Conversation({
                           <ToolStep
                             key={m.id}
                             message={toolView(m)}
-                            checklistState={
-                              m.name === 'research_checklist' ? checklistState : undefined
-                            }
                             onRetry={() => onRetry(m.id)}
                             onPreviewFile={onPreviewFile}
                           />

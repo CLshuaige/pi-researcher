@@ -1,6 +1,16 @@
-import { useMemo } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Check, Circle, CircleDot, ClipboardList, LoaderCircle, Minus, Pause } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  CircleDot,
+  ClipboardList,
+  LoaderCircle,
+  Minus,
+  Pause,
+} from 'lucide-react';
 import type { ChatMessage } from '../../shared/types';
 
 interface ChecklistModule {
@@ -19,6 +29,7 @@ interface ChecklistData {
   currentModule?: ChecklistModule | null;
   nextAction?: string;
   objective?: string;
+  objectiveRevision?: number;
   modules?: ChecklistModule[];
   control?: { state?: string };
 }
@@ -32,7 +43,7 @@ const STATUS_META: Record<string, { label: string; icon: React.ReactNode; classN
   },
   awaiting_acceptance: { label: '待验收', icon: <CircleDot size={11} />, className: 'review' },
   pending: { label: '等待中', icon: <Circle size={11} />, className: 'pending' },
-  blocked: { label: '受阻', icon: <Pause size={11} />, className: 'blocked' },
+  blocked: { label: '受阻', icon: <Pause size={12} />, className: 'blocked' },
   skipped: { label: '已跳过', icon: <Minus size={11} />, className: 'skipped' },
 };
 
@@ -49,7 +60,7 @@ function statusMeta(status?: string) {
 function moduleLabel(m: ChecklistModule): string {
   const text = m.objective || '';
   const stripped = text.replace(/^[^：:]{2,12}[：:]\s*/, '');
-  return stripped.length > 52 ? stripped.slice(0, 52) + '…' : stripped || m.id;
+  return stripped || m.id;
 }
 
 export function isChecklistJson(text: string): boolean {
@@ -66,10 +77,20 @@ export function getLatestChecklistState(
   messages: ChatMessage[],
 ): { text: string; prevText?: string } | undefined {
   const snapshots = messages.flatMap((message, index) => {
-    if (message.role !== 'tool' || message.name !== 'research_checklist' || !isChecklistJson(message.text))
+    if (
+      message.role !== 'tool' ||
+      message.name !== 'research_checklist' ||
+      !isChecklistJson(message.text)
+    )
       return [];
     const data = JSON.parse(message.text) as ChecklistData;
-    return [{ text: message.text, revision: Number.isInteger(data.revision) ? data.revision : undefined, index }];
+    return [
+      {
+        text: message.text,
+        revision: Number.isInteger(data.revision) ? data.revision : undefined,
+        index,
+      },
+    ];
   });
   if (!snapshots.length) return undefined;
 
@@ -79,13 +100,15 @@ export function getLatestChecklistState(
     return revisionA - revisionB || a.index - b.index;
   });
   const latest = byPriority.at(-1)!;
-  const previous = [...byPriority].reverse().find(
-    (snapshot) =>
-      snapshot.index !== latest.index &&
-      (latest.revision === undefined
-        ? snapshot.revision === undefined
-        : snapshot.revision !== latest.revision),
-  );
+  const previous = [...byPriority]
+    .reverse()
+    .find(
+      (snapshot) =>
+        snapshot.index !== latest.index &&
+        (latest.revision === undefined
+          ? snapshot.revision === undefined
+          : snapshot.revision !== latest.revision),
+    );
   return { text: latest.text, ...(previous ? { prevText: previous.text } : {}) };
 }
 
@@ -270,5 +293,115 @@ export function ChecklistView({ text, prevText }: { text: string; prevText?: str
         )}
       </div>
     </motion.div>
+  );
+}
+
+export function ChecklistDock({
+  text,
+  prevText,
+  controlState,
+}: {
+  text: string;
+  prevText?: string;
+  controlState?: string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const panelId = useId();
+  const data = useMemo(() => {
+    try {
+      return JSON.parse(text) as ChecklistData;
+    } catch {
+      return null;
+    }
+  }, [text]);
+  const taskSignature = JSON.stringify(
+    data && {
+      objective: data.objective,
+      objectiveRevision: data.objectiveRevision,
+      currentModuleId: data.currentModule?.id,
+      nextAction: data.nextAction,
+      modules: data.modules?.map(
+        ({ id, objective, status, reason, evidence, acceptance, criteria }) => ({
+          id,
+          objective,
+          status,
+          reason,
+          evidence,
+          acceptance,
+          criteria,
+        }),
+      ),
+    },
+  );
+  const previousTaskSignature = useRef(taskSignature);
+  useEffect(() => {
+    if (previousTaskSignature.current !== taskSignature) setExpanded(true);
+    previousTaskSignature.current = taskSignature;
+  }, [taskSignature]);
+  if (!data?.modules?.length) return null;
+
+  const state = controlState ?? data.control?.state;
+  const active = new Set(['running', 'awaiting_acceptance', 'blocked']);
+  const current =
+    state === 'completed'
+      ? undefined
+      : (data.currentModule && active.has(data.currentModule.status || '')
+          ? data.currentModule
+          : undefined) || data.modules.find((module) => active.has(module.status || ''));
+  const allTerminal = data.modules.every((module) =>
+    ['completed', 'skipped'].includes(module.status || ''),
+  );
+  const allCompleted = data.modules.every((module) => module.status === 'completed');
+  const finished = state === 'completed' || data.nextAction === 'finish' || allCompleted;
+  const title = current
+    ? `${current.id}：${current.objective || current.id}`
+    : finished
+      ? '任务已完成'
+      : allTerminal
+        ? '任务已结束'
+        : '等待任务开始';
+  const icon =
+    state === 'paused' || state === 'stopped' ? (
+      <Pause size={12} />
+    ) : state === 'waiting' ? (
+      <Circle size={14} />
+    ) : (
+      statusMeta(current?.status ?? (finished ? 'completed' : allTerminal ? 'skipped' : 'pending'))
+        .icon
+    );
+  const stateLabel =
+    state === 'paused'
+      ? '已暂停'
+      : state === 'waiting'
+        ? '等待中'
+        : state === 'stopped'
+          ? '已停止'
+          : current?.status === 'awaiting_acceptance'
+            ? '待验收'
+            : current?.status === 'blocked'
+              ? '受阻'
+              : undefined;
+
+  return (
+    <section className="checklist-dock" aria-label="研究清单">
+      <div id={panelId} className="checklist-dock-panel" hidden={!expanded}>
+        {expanded && <ChecklistView text={text} prevText={prevText} />}
+      </div>
+      <button
+        type="button"
+        className="checklist-dock-toggle"
+        aria-label={`${expanded ? '收起' : '展开'}研究清单`}
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {icon}
+        <span className="checklist-dock-current" title={title}>
+          {title}
+        </span>
+        {stateLabel && <span className="checklist-dock-status">{stateLabel}</span>}
+        {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+      </button>
+    </section>
   );
 }

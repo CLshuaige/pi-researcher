@@ -1,5 +1,5 @@
 import { Reveal } from './ui/animated';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Download, Trash2, Plus, Minus } from 'lucide-react';
 import { api } from '../api';
 import { FileIcon } from './FileIcon';
@@ -20,6 +20,49 @@ const descriptions: Record<string, string> = {
   'BRIEF.md': '研究目标',
   'STATE.md': '研究状态',
 };
+function folderStateKey(sessionId: string) {
+  return `gewu-artifact-folders:${sessionId}`;
+}
+function loadFolderState(sessionId?: string): Record<string, boolean> {
+  if (!sessionId) return {};
+  try {
+    const raw = localStorage.getItem(folderStateKey(sessionId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function saveFolderState(sessionId: string, path: string, expanded: boolean) {
+  const state = loadFolderState(sessionId);
+  state[path] = expanded;
+  try {
+    localStorage.setItem(folderStateKey(sessionId), JSON.stringify(state));
+  } catch {
+    // Storage may be unavailable; the in-memory tree state still works.
+  }
+}
+export function setFoldersExpanded(artifacts: Artifact[], sessionId: string, expanded: boolean) {
+  const state = loadFolderState(sessionId);
+  const visit = (items: Artifact[]) => {
+    for (const item of items) {
+      if (item.kind !== 'directory') continue;
+      state[item.path] = expanded;
+      visit(item.children || []);
+    }
+  };
+  visit(artifacts);
+  try {
+    localStorage.setItem(folderStateKey(sessionId), JSON.stringify(state));
+  } catch {
+    // Storage may be unavailable; the in-memory tree state still works.
+  }
+}
+interface FolderExpansion {
+  expanded: boolean;
+  version: number;
+}
 interface TreeProps {
   artifacts: Artifact[];
   onPreview: (artifact: Artifact) => void;
@@ -27,6 +70,7 @@ interface TreeProps {
   fresh?: Set<string>;
   compact?: boolean;
   limit?: number;
+  folderExpansion?: FolderExpansion;
 }
 export function FileTree({
   artifacts,
@@ -35,6 +79,7 @@ export function FileTree({
   fresh,
   compact = false,
   limit,
+  folderExpansion,
 }: TreeProps) {
   const [all, setAll] = useState(false);
   const visible = all || !limit ? artifacts : artifacts.slice(0, limit);
@@ -42,13 +87,14 @@ export function FileTree({
     <>
       {visible.map((artifact) => (
         <TreeRow
-          key={artifact.path}
+          key={`${sessionId || ''}:${compact}:${artifact.path}`}
           artifact={artifact}
           onPreview={onPreview}
           sessionId={sessionId}
           fresh={fresh}
           compact={compact}
           limit={limit}
+          folderExpansion={folderExpansion}
         />
       ))}
       {!!limit && artifacts.length > limit && (
@@ -71,8 +117,18 @@ function TreeRow({
   fresh,
   compact,
   limit,
+  folderExpansion,
 }: Omit<TreeProps, 'artifacts'> & { artifact: Artifact }) {
-  const [expanded, setExpanded] = useState(!compact);
+  const [expanded, setExpanded] = useState(() =>
+    compact ? false : (loadFolderState(sessionId)[item.path] ?? true),
+  );
+  const lastExpansionVersion = useRef(folderExpansion?.version);
+  useEffect(() => {
+    if (compact || !folderExpansion || folderExpansion.version === lastExpansionVersion.current)
+      return;
+    lastExpansionVersion.current = folderExpansion.version;
+    setExpanded(folderExpansion.expanded);
+  }, [compact, folderExpansion]);
   const directory = item.kind === 'directory';
   const [error, setError] = useState('');
   return (
@@ -89,7 +145,12 @@ function TreeRow({
               : `${compact ? '预览节点文件' : '查看文件'} ${item.name}`
           }
           aria-expanded={directory ? expanded : undefined}
-          onClick={() => (directory ? setExpanded(!expanded) : onPreview(item))}
+          onClick={() => {
+            if (!directory) return onPreview(item);
+            const next = !expanded;
+            setExpanded(next);
+            if (!compact && sessionId) saveFolderState(sessionId, item.path, next);
+          }}
         >
           {directory ? (
             expanded ? (
@@ -171,6 +232,7 @@ function TreeRow({
               fresh={fresh}
               compact={compact}
               limit={limit}
+              folderExpansion={folderExpansion}
             />
           </div>
         </Reveal>
