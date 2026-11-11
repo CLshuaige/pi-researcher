@@ -62,3 +62,14 @@ experiment-root/
 - 计划不再强制每次重装环境；复用已有可用资源。
 
 独立 `/engine` 默认不随 researcher manifest 在主会话注册，以避免与原有入口冲突；实验子会话会自动加载。当前工作区原入口改为导出本包实现，保持原 `/engine` 使用方式。
+
+
+## 已完成研究的咨询与局部修订
+
+`/research` 保持统一入口。只读咨询使用 `resolve` 的 `response` 记录实际答复；未规划科研阶段时，只有指令均有实际答复且已处理，才能作为纯咨询结束，首次科研仍需规划与执行。完成后要求落盘或修改成果，使用 `research_checklist(action: "followup")`，提供真实 `instructionId`、目标原模块 `moduleId`、`kind`、`objective` 和 `criteria`；正式修订还需 `impact`。程序分配 `<阶段>/revisions/<新任务ID>/`，以新模块复用现有 `start`、委派及 `accept`，不重置原模块。
+
+`analysis` 默认不挂载专科 Skill，用于补充评估；`revision` 默认继承目标 Skill。返回的 `currentModule.id` 是后续启动、委派和验收使用的 ID，`followup.outputDir` 覆盖原有默认交付路径，材料仍可从整个项目读取。原已验收证据保存在 `.research/versions/<新任务ID>/baseline/`；验收必须引用新目录中的真实文件，并核对原证据指纹未变。绑定指令在验收时自动关闭，不能先用 prose-only `resolve` 宣称交付；跳过会明确记录取消而不发布。
+
+正式修订验收后，原模块的 `currentVersionId` 指向新模块；模型检查点的 `versions` 提供当前证据入口。下游 `needsReview` 只表示适用性待复核，不自动执行实验或改稿。默认标记传递依赖，显式缩小 `affectedModules` 时需给出影响说明。旧固定路径不会被覆盖或自动切换；Presentation 的版本适配单独处理。`write/edit`、专科子会话和受管作业遵循本次输出范围；Bash 沿用现有协作式目录与缓存约束，不是操作系统沙箱，验收仍核对原证据。这里只快照已登记的验收证据，不复制整个项目、环境或所有未登记文件。
+
+纯咨询的 `response` 用于实际回答，不用于确认收到科研执行指令。局部任务验收/取消或纯咨询结束后，若还有未完成阶段且没有运行中的子任务，管理器保留这些阶段并暂停，而不擅自恢复后续科研；已运行后台任务沿用原有等待/通知机制。

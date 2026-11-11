@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Value } from 'typebox/value';
 import { JobParameters, jobGuide } from './job-tool.ts';
-import { ToolRepetitionGuard, reportHandoff, scopeBash } from "./boundaries.ts";
+import { ToolRepetitionGuard, reportHandoff, scopeBash, followupBoundary } from "./boundaries.ts";
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { ChecklistParameters, applyChecklistAction, checklistGuide, checklistRecovery, type ChecklistArguments } from './checklist-tool.ts';
 import { moduleResources } from './modules.ts';
@@ -11,11 +11,15 @@ import { ChecklistStore, checklistState, currentModule, requireCurrentModule } f
 import { acquireOwnerLock, atomicWrite } from './store.ts';
 import type { ResearchRunner } from './runner.ts';
 
-export const managerPrompt = `You are the research manager responsible for the entire goal, evidence, budget and acceptance. checklist.json is the authoritative control state; BRIEF.md explains the goal and STATE.md records synthesis. Use research_checklist to initialize, plan, revise and accept modules. Give calls a short Chinese title (at most 12 characters) describing the action; execution status is determined by the program, and reason retains its audit/resolution purpose. Never edit control files directly, including via Bash. Modules MUST execute in checklist array order. Only currentModule may start, execute, delegate or be accepted; blocked modules cannot be silently bypassed. Use research_checklist start before execution. The current module execution instructions are injected into every request: follow them. For specialist stages the parent receives routing instructions and the child reads its own mounted SKILL.md. Skills are instruction documents, not tool names. Module settings remain editable throughout the research. Before starting, restarting or resuming any stage, read and validate the latest project .pi/research-modules.json using research-task/scripts/check-settings.mjs; pass freshly validated settings and the project root to any child. Historical task text, outputs and configuration snapshots do not override settings saved later. Record the effective settings used by each run. There is no default runtime or model-request budget. Do not invent timeoutMs, maxRuntimeMs, toolTimeoutMs, timeoutSeconds or shell time limits; supply them only when the user explicitly authorizes such a limit. New settings apply at the next execution boundary; do not claim an already running command changed its launch parameters. Prefer existing evidence and small direct tasks; delegate bounded tasks with moduleId. Child completion is only a handoff: verify evidence against every criterion before acceptance. Record negative findings honestly. Resolve each pending user instruction, revising the objective when necessary. Work and download only within the research root; configure temporary files and caches there. Do not claim completion while the checklist is unfinished. Use research_job for long downloads/training: start returns a job ID immediately, then finish your response to wait without polling. Call research_job wait alone in a tool batch after resolving pending instructions: it ends the model run normally and can schedule one timed check. Pause/Escape preserves background jobs; stop cancels them. Answer new user input while jobs run. Inspect exit status and real artifacts before accepting; process success is not module acceptance. Mark genuinely blocked modules with reasons rather than looping without evidence. After a Checklist error, prioritize checklistRecovery in the next checkpoint: correct the actual tool arguments, not only narrative text. Read/help alone do not resolve the error. Never accept a child suggestion without verifying its evidence.`;
+export const managerPrompt = `New input does not always require another full scientific workflow. With no planned modules, a conversational question may finish through resolve(response); a real research request still requires planning and execution. Read-only questions can be answered from project materials and resolved with response; no stage execution is needed. Requests to save analysis or modify completed work require research_checklist(action: followup), bound to the actual instructionId and target moduleId. Use kind=analysis for supplementary findings without changing the accepted method; use kind=revision when updating the formal method/report or another accepted stage. Read the returned new module ID and followup.outputDir, then start it. Work only on the user's requested scope, reuse prior evidence, do not redo a whole Skill workflow unnecessarily, and never rerun downstream experiments/reports without authorization. New artifacts stay in outputDir; prior accepted artifacts are read-only. Before using a stage's outputs, consult versions/currentVersionId rather than assuming its old fixed path is current. Followup acceptance verifies delivery and automatically resolves its bound instruction. Never resolve an artifact request merely in prose, or claim a blocked write succeeded. needsReview records downstream applicability concerns, not authorization to execute them.
+
+You are the research manager responsible for the entire goal, evidence, budget and acceptance. checklist.json is the authoritative control state; BRIEF.md explains the goal and STATE.md records synthesis. Use research_checklist to initialize, plan, revise and accept modules. Give calls a short Chinese title (at most 12 characters) describing the action; execution status is determined by the program, and reason retains its audit/resolution purpose. Never edit control files directly, including via Bash. Initial modules MUST execute in checklist array order; explicitly registered followups temporarily take precedence as currentModule. Only currentModule may start, execute, delegate or be accepted; blocked modules cannot be silently bypassed. Use research_checklist start before execution. The current module execution instructions are injected into every request: follow them. For specialist stages the parent receives routing instructions and the child reads its own mounted SKILL.md. Skills are instruction documents, not tool names. Module settings remain editable throughout the research. Before starting, restarting or resuming any stage, read and validate the latest project .pi/research-modules.json using research-task/scripts/check-settings.mjs; pass freshly validated settings and the project root to any child. Historical task text, outputs and configuration snapshots do not override settings saved later. Record the effective settings used by each run. There is no default runtime or model-request budget. Do not invent timeoutMs, maxRuntimeMs, toolTimeoutMs, timeoutSeconds or shell time limits; supply them only when the user explicitly authorizes such a limit. New settings apply at the next execution boundary; do not claim an already running command changed its launch parameters. Prefer existing evidence and small direct tasks; delegate bounded tasks with moduleId. Child completion is only a handoff: verify evidence against every criterion before acceptance. Record negative findings honestly. Resolve each pending user instruction, revising the objective when necessary. Work and download only within the research root; configure temporary files and caches there. Do not claim completion while the checklist is unfinished. Use research_job for long downloads/training: start returns a job ID immediately, then finish your response to wait without polling. Call research_job wait alone in a tool batch after resolving pending instructions: it ends the model run normally and can schedule one timed check. Pause/Escape preserves background jobs; stop cancels them. Answer new user input while jobs run. Inspect exit status and real artifacts before accepting; process success is not module acceptance. Mark genuinely blocked modules with reasons rather than looping without evidence. After a Checklist error, prioritize checklistRecovery in the next checkpoint: correct the actual tool arguments, not only narrative text. Read/help alone do not resolve the error. Never accept a child suggestion without verifying its evidence.`;
 // Routing belongs to the parent. The specialist reads its own mounted skill.
 const specialistNames = ['research-literature', 'research-experiment', 'research-report'] as const;
 const specialistRouting = (name: string) => `When the current module declares ${name}, delegate its work through pi-subagents to the registered ${name} agent with its own mounted skill. This project instruction authorizes delegation. Enable subagents_enable if needed and discover the canonical agent name once with subagent(action: list). If unavailable, report the blocker. Use {"agent":"${name}","task":"bounded goal, relevant materials, current config, output location and every acceptance criterion","cwd":"/absolute/project","async":true,"output":false,"options":{"context":"fresh","outputMode":"inline"}}. output is TOP LEVEL. The project root is the material root, not the plugin transcript or output directory. Pass actual existing input paths as hints, not an exhaustive allowlist; the child must discover and read relevant project files, including ignored materials. Read and validate the latest .pi/research-modules.json before launch or resume. Do not substitute research_delegate, a generic agent or parent-side stage execution. After launching asynchronously, stop generating text; do not poll status, call research_job wait or simulate waiting. Native completion automatically wakes the parent. Inspect a failed/partial handoff once and resume the same run with bounded remaining work and existing artifacts; if recovery cannot proceed, block the module with its reason. The parent owns Checklist acceptance, reads the actual files and verifies EVERY criterion; child completion and process success are not acceptance. The report child loop-guard state .research/report-handoff.json, when blocked, is a partial handoff, never successful completion. Do not delegate recursively from inside a specialist. Routing applies only to the current Checklist module: importing shared report Python helpers from literature work never delegates to the report agent.`;
-const specialistDeliverables = (name: string) => name === 'research-literature'
+const specialistDeliverables = (name: string, outputDir?: string) => outputDir
+  ? `本次是局部后续任务，所有新产物只写入 ${outputDir}；该目录覆盖 Skill 的默认交付目录。旧版本、原始数据和实验结果只读。以本次目标和标准为限复用已有材料，不重新初始化整套流程。`
+  : name === 'research-literature'
   ? 'literature.md 和 literature/ 位于项目根目录下；先保存已核实的 literature.md 和 literature/papers.jsonl，再按配置完成可选综述'
   : name === 'research-experiment'
     ? '实验代码、环境与运行记录放在 experiment/，结论写入 result.md，按配置执行有界优化并核验目标'
@@ -312,7 +316,7 @@ export class ResearchController {
       this.flush();
       const c = this.store!.read();
       if (c && !this.pending.length && this.store!.complete(c)) return { state: 'completed' as const, reason: 'All modules accepted' };
-      const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution);
+      const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution && !i.followupModuleId);
       if (!unresolved && !this.pendingEvents().length && (this.asyncDelegations.size || this.waitRequested || this.store!.files.jobs().some(j => j.status === 'running'))) {
         return { state: 'waiting' as const, reason: 'Waiting for child agents, managed jobs or scheduled check' };
       }
@@ -320,7 +324,7 @@ export class ResearchController {
       this.stagnant = fingerprint === this.last ? this.stagnant + 1 : 0;
       this.last = fingerprint;
       if (this.stagnant >= 3) return { state: 'paused' as const, reason: 'No checklist progress across repeated continuations' };
-      if (c?.modules.length && !this.pending.length && !c.control.instructions.some(i => !i.resolution) && currentModule(c)?.status === 'blocked') return { state: 'paused' as const, reason: 'Remaining work blocked; inspect checklist' };
+      if (c?.modules.length && !this.pending.length && !c.control.instructions.some(i => !i.resolution && !i.followupModuleId) && currentModule(c)?.status === 'blocked') return { state: 'paused' as const, reason: 'Remaining work blocked; inspect checklist' };
       return { state: 'continue' as const, reason: 'Continue unfinished research', checklist: c };
     } catch {
       return this.continuations >= 3 ? { state: 'paused' as const, reason: 'Checklist repair failed' }
@@ -442,6 +446,10 @@ export class ResearchController {
         if (event.parentToolCallId || !message || message.content.filter(b => b.type === 'toolCall').length !== 1) return { block: true, reason: 'Call research_job wait alone in its own tool batch; nested wait is unsupported' };
       }
       try {
+        if(event.toolName==='research_checklist' && event.input.action==='followup') {
+          const entry=ctx.sessionManager.getBranch().findLast(entry=>entry.type==='message'&&entry.message.role==='assistant');
+          if(entry?.type==='message' && entry.message.role==='assistant' && entry.message.content.filter(part=>part.type==='toolCall').length!==1) return {block:true,reason:'Create a followup in a separate tool call before executing or delegating work.'};
+        }
         const c = this.store.read();
         if (event.toolName === 'research_checklist' && event.input.action === 'accept' && c) {
           const module = currentModule(c);
@@ -453,22 +461,29 @@ export class ResearchController {
         const jobManagement = event.toolName === 'research_job' && (event.input as { action?: string }).action !== 'start';
         if (jobManagement) return;
         if ((!c || !c.modules.length) && !['read', 'grep', 'find', 'ls', 'research_checklist'].includes(event.toolName)) return { block: true, reason: 'Call research_checklist(action: "init") to initialize the research checklist, then research_checklist(action: "plan", modules: [...]) to plan modules before any other tool execution.' };
-        if (c && c.modules.length && !['read', 'grep', 'find', 'ls', 'research_checklist'].includes(event.toolName)) {
+        if (c && c.modules.length && !['read', 'grep', 'find', 'ls', 'research_checklist'].includes(event.toolName) && !(!currentModule(c) && ['web_search','academic_search','fetch_content','get_search_content','paper_lookup','paper_citations'].includes(event.toolName))) {
           const m = currentModule(c);
-          if (!m || !['running', 'awaiting_acceptance'].includes(m.status)) return { block: true, reason: `Call research_checklist(action: "start", moduleId: "${m?.id ?? '...'}") to start the current module before other tool execution.` };
+          if (!m) {
+            if(['write','edit'].includes(event.toolName)) this.store.change('Artifact delivery requires a followup',value=>{const instruction=value.control.instructions.findLast(i=>!i.resolution);if(instruction)instruction.requiresArtifact=true;});
+            return {block:true,reason:'Research is complete. Answer read-only questions with resolve(response). To write artifacts, first call research_checklist(action: "followup", instructionId, moduleId: target stage, kind, objective, criteria), then start the returned currentModule.id.'};
+          }
+          if (!['running', 'awaiting_acceptance'].includes(m.status)) return {block:true,reason:`Start currentModule ${m.id} before execution.`};
+          const boundary=followupBoundary(this.store.files.root,m,event.toolName,event.input);
+          if(boundary)return {block:true,reason:boundary};
           requireCurrentModule(c, m.id);
           if (event.toolName === 'subagent' && m.skills.some(skill => specialistNames.some(name => name === skill))) {
             const input = event.input as { agent?: string; task?: string; message?: string; cwd?: string; output?: unknown; workflow?: unknown; options?: Record<string, unknown>; action?: string };
             const specialist = specialistNames.find(name => m.skills.includes(name))!;
             const validator = join(dirname(moduleResources(['research-task']).skills[0]), 'scripts/check-settings.mjs');
-            const projectContext = `当前节点：${m.id}；目标：${m.objective}；验收条件：${JSON.stringify(m.criteria)}。配置校验脚本（绝对路径）：${validator}；用 node 执行该脚本并传入 --workspace 和项目根目录，路径应正确引用。配置文件不存在时采用校验器给出的默认值，不反复读取不存在的文件。`;
+            const projectContext = `本次版本上下文：${JSON.stringify(checklistState(c).versions)}。${m.followup?`本次交付目录（覆盖默认路径）：${this.store.path(m.followup.outputDir)}；已有产物只读；不执行未授权的下游任务。`:""}当前节点：${m.id}；目标：${m.objective}；验收条件：${JSON.stringify(m.criteria)}。配置校验脚本（绝对路径）：${validator}；用 node 执行该脚本并传入 --workspace 和项目根目录，路径应正确引用。配置文件不存在时采用校验器给出的默认值，不反复读取不存在的文件。`;
             if (input.action === 'resume' || (!input.action && (input.agent || '').split(/[:/]/).at(-1) === specialist)) {
               // Temporarily disable activity-monitor notices: ordinary reading can
               // exceed the 60s idle window. Native completion/failure delivery stays on.
               input.options = { ...input.options, control: { enabled: false } };
             }
             if (input.action === 'resume') {
-              input.message = `${input.message || ''}\n${projectContext}\n恢复后的研究产物必须交付到项目根目录 ${this.store.files.root}，先读取该目录 .pi/research-modules.json 最新配置。若先前材料位于插件日志/会话目录，核验后复制需要的材料到项目目录，再继续未完成部分。${specialistDeliverables(specialist)}；不要重复已完成工作或反复处理缺少的依赖。`;
+              if(m.followup && !m.taskIds.includes(String((input as {id?:string;runId?:string}).id || (input as {runId?:string}).runId || ''))) return {block:true,reason:'Do not resume a run from another version. Start a fresh revision run using previous artifacts as inputs.'};
+              input.message = `${input.message || ''}\n${projectContext}\n恢复后的研究产物必须交付到项目根目录 ${this.store.files.root}，先读取该目录 .pi/research-modules.json 最新配置。若先前材料位于插件日志/会话目录，核验后复制需要的材料到项目目录，再继续未完成部分。${specialistDeliverables(specialist, m.followup && this.store.path(m.followup.outputDir))}；不要重复已完成工作或反复处理缺少的依赖。`;
             }
             if (!input.action && (input.agent || '').split(/[:/]/).at(-1) === specialist) {
               // A disabled optional workflow means an ordinary named-agent run.
@@ -478,17 +493,22 @@ export class ResearchController {
               input.options = { ...input.options, context: 'fresh', outputMode: 'inline' };
               delete input.options.output;
               // Keep project deliverables outside the plugin's managed transcript directory.
-              input.task = `${input.task || ''}\n${projectContext}项目根目录：${this.store.files.root}。先读取该目录 .pi/research-modules.json 的最新配置。所有研究产物写入此项目；插件的 session/artifact 目录仅用于日志，不能作为研究输出目录。${specialistDeliverables(specialist)}；资源缺失时保留已完成内容并如实交接，不反复安装依赖。`;
+              input.task = `${input.task || ''}\n${projectContext}项目根目录：${this.store.files.root}。先读取该目录 .pi/research-modules.json 的最新配置。所有研究产物写入此项目；插件的 session/artifact 目录仅用于日志，不能作为研究输出目录。${specialistDeliverables(specialist, m.followup && this.store.path(m.followup.outputDir))}；资源缺失时保留已完成内容并如实交接，不反复安装依赖。`;
             }
           }
           if (event.toolName === 'engine_start' && !m.skills.includes('research-experiment')) return { block: true, reason: 'Current module does not declare research-experiment' };
+        }
+        const current=c && currentModule(c);
+        if(current?.followup && event.toolName==='subagent' && !(event.input as {action?:string}).action) {
+          const request=event.input as {task?:string;cwd?:string};
+          request.task=`${request.task || ''}\n项目材料根目录：${this.store.files.root}。本次修订所有新文件只写入 ${this.store.path(current.followup.outputDir)} 及其子目录，覆盖旧的默认输出位置；旧成果只读。${JSON.stringify(checklistState(c!).versions)}`;
         }
         const input = event.input as { path?: string; outputDir?: string; command?: string };
         if (['write', 'edit'].includes(event.toolName)) {
           const p = this.store.path(input.path ?? '');
           if (p === this.store.path('checklist.json') || p.startsWith(this.store.path('.research') + '/')) return { block: true, reason: 'Runtime files are managed through research_checklist' };
         }
-        if (event.toolName === 'bash') scopeBash(this.store.files.root, input);
+        if (event.toolName === 'bash') { const module=c && currentModule(c); scopeBash(module?.followup ? this.store.path(module.followup.outputDir) : this.store.files.root,input); }
         if (event.toolName === 'engine_start') {
           const target = (event.input as { projectPath?: string }).projectPath;
           if (!target) throw new Error('Supply projectPath');
@@ -510,6 +530,8 @@ export class ResearchController {
       if (!event.isError && details?.asyncId) this.asyncDelegations.add(details.asyncId);
       const c = this.store.read(), m = c && currentModule(c);
       const specialist = m && specialistNames.find(name => m.skills.includes(name));
+      const nativeId=details?.asyncId;
+      if(nativeId && m?.followup && !event.isError && (!event.input.action || event.input.action==='start')) this.store.change('Record revision child run',value=>{const module=value.modules.find(module=>module.id===m.id)!;if(!module.taskIds.includes(nativeId))module.taskIds.push(nativeId);});
       if (!m || !specialist) return;
       if (event.input.action === 'status') {
         const id = String(event.input.id || event.input.runId || '');
@@ -585,7 +607,7 @@ export class ResearchController {
           } else {
             const c = this.store.read();
             if (!c) throw new Error('Initialize checklist before waiting');
-            const unresolved = this.state().pendingInstructions;
+            const unresolved = this.state().pendingInstructions.filter(i=>!('followupModuleId' in i && i.followupModuleId));
             if (unresolved.length) throw new Error(`Resolve pending instructions before waiting: ${JSON.stringify(unresolved)}`);
             if (p.wakeAfterSeconds === undefined && !this.store.files.jobs().some(j => j.status === 'running')) throw new Error('wait needs a running job or wakeAfterSeconds');
             this.waitRequested = true; this.waitId = randomUUID();
@@ -605,6 +627,7 @@ export class ResearchController {
         if (p.action === 'help') return { content: [{ type: 'text', text: checklistGuide }], details: { guide: checklistGuide } };
         if (!this.active || !this.store) return { content: [{ type: 'text', text: 'Activate with /researcher, or send a new instruction after interruption.' }], details: {}, isError: true };
         try {
+          if (['followup','accept'].includes(p.action) && this.asyncDelegations.size) throw new Error('Wait for native child completion before accepting or switching work.');
           if (p.action === 'accept' && this.moduleSettings().interactionMode === 'review') {
             const c = this.store.read();
             if (!c || c.revision !== p.expectedRevision || currentModule(c)?.id !== p.moduleId)
@@ -616,7 +639,11 @@ export class ResearchController {
               return { content: [{ type: 'text', text: '阶段验收已暂缓，保留当前成果。' }], details: this.state(), terminate: true };
             }
           }
-          applyChecklistAction(this.store, p.action === 'init' && !p.objective ? { ...p, objective: this.pending.join('\n') } : p);
+          const changed = applyChecklistAction(this.store, p.action === 'init' && !p.objective ? { ...p, objective: this.pending.join('\n') } : p);
+          const scopedDelivery = (p.action==='accept' || (p.action==='update' && p.status==='skipped')) && changed?.modules.find(module=>module.id===p.moduleId)?.followup;
+          if(changed && currentModule(changed) && (scopedDelivery || (p.action==='resolve' && p.response)) && !this.pending.length && !changed.control.instructions.some(i=>!i.resolution) && !this.asyncDelegations.size && !this.store.files.activeWork().length) {
+            await this.pause(scopedDelivery ? 'Scoped followup finished; remaining research preserved for explicit continuation' : 'Read-only answer finished; remaining research preserved', 'paused', false);
+          }
           if (p.action !== 'read') { this.checklistFailure = undefined; this.checklistRecoveryState = undefined; this.checklistFailedArguments = undefined; }
           const payload = this.state();
           return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: payload };

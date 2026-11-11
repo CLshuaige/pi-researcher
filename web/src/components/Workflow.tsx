@@ -96,6 +96,7 @@ function Stage({ data }: NodeProps<StageNode>) {
         >
           {data.label}
         </button>
+        {/* 暂时隐藏展板右上角的重试/生成按钮
         <button
           className="presentation-generate nodrag nopan"
           disabled={busy}
@@ -110,6 +111,7 @@ function Stage({ data }: NodeProps<StageNode>) {
           )}
           {!board?.digest && !busy ? '生成展板' : null}
         </button>
+        */}
       </div>
       <article className="presentation-sheet">
         <Icon
