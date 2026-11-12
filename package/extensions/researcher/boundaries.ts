@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { ChecklistStore, currentModule, type ResearchModule } from './checklist.ts';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import type { ExtensionAPI, ToolResultEvent } from '@earendil-works/pi-coding-agent';
 import { atomicWrite, digest, workspacePath } from './store.ts';
 /** Cooperative shell scope, not a sandbox: the command may explicitly override it. */
@@ -9,6 +10,21 @@ export function scopeBash(root: string, input: { command?: string }) {
   const cache = workspacePath(root, '.research/cache');
   mkdirSync(temp, { recursive: true }); mkdirSync(cache, { recursive: true });
   input.command = `cd ${quote(root)} && export TMPDIR=${quote(temp)} XDG_CACHE_HOME=${quote(cache)} &&\n${input.command ?? ''}`;
+}
+
+/** Use the existing workspace path checks for a revision's declared write destinations. */
+export function followupBoundary(root: string, module: ResearchModule, tool: string, input: Record<string, unknown>): string | undefined {
+  if(!module.followup)return;
+  try {
+    if(tool==='fetch_arxiv')return 'Use a project-local download with an explicit output directory for this followup.';
+    if(!['write','edit','download_pdf','engine_start'].includes(tool))return;
+    const output=workspacePath(root,module.followup.outputDir);
+    const raw=['write','edit'].includes(tool)?input.path:tool==='download_pdf'?input.outputDir:input.projectPath;
+    if(typeof raw!=='string' || !raw.trim())return `Supply an explicit destination inside ${module.followup.outputDir}.`;
+    const destination=workspacePath(root,raw);
+    if(destination!==output && !destination.startsWith(output+sep))return `This followup writes only inside ${module.followup.outputDir}; existing project artifacts are read-only.`;
+  } catch(error) { return String(error); }
+
 }
 
 /** Shared observation guard: no controller, Checklist tools or stage scheduling. */
@@ -57,25 +73,41 @@ export function reportHandoff(root: string): { status: string; reason?: string }
   catch { return undefined; }
 }
 
-/** Loaded only by the report agent's subagentOnlyExtensions. */
+/** Shared specialist write scope; the existing repetition/handoff guard remains report-only. */
 export default function reportGuard(pi: ExtensionAPI) {
   const guard = new ToolRepetitionGuard();
   let blocked: string | undefined;
+  let projectRoot: string | undefined;
+  let module: ResearchModule | undefined;
+  let report = true;
   const save = (root: string, status: string, reason?: string) => {
     const path = workspacePath(root, '.research/report-handoff.json');
     mkdirSync(dirname(path), { recursive: true });
     atomicWrite(path, JSON.stringify({ status, reason, root, updatedAt: Date.now() }));
   };
   pi.on('before_agent_start', (_event, ctx) => {
-    guard.reset(); blocked = undefined; save(ctx.cwd, 'running');
+    guard.reset(); blocked = undefined;
+    projectRoot=ctx.cwd;
+    while(!existsSync(join(projectRoot,'checklist.json')) && dirname(projectRoot)!==projectRoot)projectRoot=dirname(projectRoot);
+    if(!existsSync(join(projectRoot,'checklist.json')))projectRoot=ctx.cwd;
+    let checklist: ReturnType<ChecklistStore['read']>;try{checklist=new ChecklistStore(projectRoot).read();}catch(error){blocked=String(error);return;}module=checklist && currentModule(checklist);
+    report=module ? module.skills.includes('research-report') : !/name[>:=\s"']+research-(literature|experiment)\b/.test(ctx.getSystemPrompt?.() || '');
+    if(report)save(projectRoot,'running');
   });
   pi.on('tool_call', (event, ctx) => {
     if (blocked) return { block: true, terminate: true, reason: blocked };
-    if (event.toolName === 'bash') scopeBash(ctx.cwd, event.input as { command?: string });
+    if(module?.followup && projectRoot) {
+      let latest: ReturnType<ChecklistStore['read']>;try{latest=new ChecklistStore(projectRoot).read();}catch(error){return {block:true,terminate:true,reason:String(error)};}
+      if(!latest || currentModule(latest)?.id!==module.id)return {block:true,terminate:true,reason:'The owning followup is no longer current.'};
+      const reason=followupBoundary(projectRoot,module,event.toolName,event.input);
+      if(reason)return {block:true,reason};
+    }
+    if (event.toolName === 'bash' && (report || module?.followup)) scopeBash(module?.followup ? workspacePath(projectRoot!,module.followup.outputDir):ctx.cwd, event.input as { command?: string });
   });
   pi.on('tool_result', (event, ctx) => {
-    const observed = guard.observe(ctx.cwd, event);
-    if (observed?.blocked) { blocked = observed.reason; save(ctx.cwd, 'blocked', blocked); }
+    if(!report)return;
+    const observed = guard.observe(projectRoot || ctx.cwd, event);
+    if (observed?.blocked) { blocked = observed.reason; save(projectRoot || ctx.cwd, 'blocked', blocked); }
     return observed?.result;
   });
   pi.on('turn_end', (_event, ctx) => {
@@ -85,6 +117,6 @@ export default function reportGuard(pi: ExtensionAPI) {
       customType: 'research-report-partial', content: blocked, display: true }] };
   });
   pi.on('agent_settled', (event, ctx) => {
-    if (!blocked) save(ctx.cwd, event.aborted ? 'partial' : 'handoff', event.aborted ? '运行被中断，保留已有成果，恢复后核验。' : undefined);
+    if (report && !blocked) save(projectRoot || ctx.cwd, event.aborted ? 'partial' : 'handoff', event.aborted ? '运行被中断，保留已有成果，恢复后核验。' : undefined);
   });
 }

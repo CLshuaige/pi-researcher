@@ -8,7 +8,7 @@ import {
   LoaderCircle,
   Minus,
 } from 'lucide-react';
-import type { ChatMessage } from '../../shared/types';
+import type { ChatMessage, PresentationState, Workflow } from '../../shared/types';
 import { toolTitle } from './ToolStep';
 
 function activityBounds(activity: HTMLElement) {
@@ -24,7 +24,24 @@ function activityBounds(activity: HTMLElement) {
   return { min, max: Math.max(min, available - canvasMin) };
 }
 
-export function ResearchActivity({ messages }: { messages: ChatMessage[] }) {
+export function ResearchActivity({
+  messages,
+  presentation,
+  workflow,
+}: {
+  messages: ChatMessage[];
+  presentation?: PresentationState;
+  workflow?: Workflow;
+}) {
+  const updates = Object.entries(presentation?.stages || {}).filter(([, stage]) => stage.activity);
+  const latest = Object.entries(presentation?.stages || {})
+    .filter(([, stage]) => stage.lastUpdate?.updatedAt || stage.updatedAt)
+    .sort(
+      (a, b) =>
+        (b[1].lastUpdate?.updatedAt || b[1].updatedAt!) -
+        (a[1].lastUpdate?.updatedAt || a[1].updatedAt!),
+    )
+    .slice(0, 1);
   const [open, setOpen] = useState(true);
   const [resizedHeight, setResizedHeight] = useState<number>();
   const [range, setRange] = useState<{ min: number; max: number }>();
@@ -132,6 +149,29 @@ export function ResearchActivity({ messages }: { messages: ChatMessage[] }) {
           <ChevronDown size={13} className={open ? 'expanded' : ''} />
         </button>
         <div id={listId} className="research-activity-body" hidden={!open}>
+          {!!(updates.length || latest.length) && (
+            <div className="presentation-activity" role="status">
+              {(updates.length ? updates : latest).map(([id, stage]) => (
+                <span key={id}>
+                  {stage.activity?.status === 'failed' ? (
+                    <AlertCircle size={12} />
+                  ) : stage.activity ? (
+                    <LoaderCircle size={12} className="presentation-spinner" />
+                  ) : (
+                    <Check size={12} />
+                  )}
+                  {workflow?.nodes.find((node) => node.id === id)?.label || id} ·{' '}
+                  {stage.activity
+                    ? stage.activity.status === 'failed'
+                      ? '更新失败'
+                      : stage.activity.status === 'queued'
+                        ? '待更新'
+                        : '展板更新中'
+                    : `${(stage.lastUpdate?.kind || stage.kind) === 'analysis' ? '补充' : `V${stage.lastUpdate?.versionNumber || stage.versionNumber || 1}`} 已更新`}
+                </span>
+              ))}
+            </div>
+          )}
           {recent.length ? (
             <ol className="research-activity-list" aria-label="最近研究动态，按开始时间倒序">
               {recent.map((message) => {

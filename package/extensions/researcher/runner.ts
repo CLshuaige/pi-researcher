@@ -46,7 +46,8 @@ export class ResearchRunner {
     const module = requireCurrentModule(c, request.moduleId);
     if (!['running', 'awaiting_acceptance'].includes(module.status)) throw new Error('Start current module before executing a job');
     if (!request.command.trim()) throw new Error('Supply a foreground command; do not use nohup, &, or daemonization');
-    const store = checklist.files, cwd = store.path(request.cwd ?? '.');
+    const store = checklist.files, cwd = store.path(request.cwd ?? module.followup?.outputDir ?? '.');
+    if(module.followup){const output=store.path(module.followup.outputDir);if(cwd!==output&&!cwd.startsWith(output+sep))throw new Error('Followup jobs must execute in their assigned output directory.');}
     if (!statSync(cwd).isDirectory()) throw new Error('Job cwd must be an existing project directory');
     const timeoutSeconds = request.timeoutSeconds ?? 0;
     if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 0 || timeoutSeconds > 86400) throw new Error('timeoutSeconds must be 0..86400 (0 disables the deadline)');
@@ -55,7 +56,7 @@ export class ResearchRunner {
     const previous = store.jobs().find(j => j.status === 'running' && j.fingerprint === fingerprint);
     if (previous) return previous;
     if (store.activeWork().length >= readConfig(root).maxConcurrent) throw new Error('Research concurrency limit reached; wait or cancel a task/job');
-    const env = { ...request.env, TMPDIR: store.path('.research/tmp'), XDG_CACHE_HOME: store.path('.research/cache') };
+    const env = { ...request.env, TMPDIR: store.path(module.followup ? `${module.followup.outputDir}/.research/tmp` : '.research/tmp'), XDG_CACHE_HOME: store.path(module.followup ? `${module.followup.outputDir}/.research/cache` : '.research/cache') };
     for (const directory of [env.TMPDIR, env.XDG_CACHE_HOME]) mkdirSync(directory, { recursive: true });
     const id = `J-${randomUUID()}`, dir = store.jobPath(id);
     mkdirSync(dir, { recursive: true });
@@ -146,7 +147,8 @@ export class ResearchRunner {
     } catch (error) { release(); throw error; }
     const attempt = (previous?.attempt ?? 0) + 1;
     const category = request.skills.includes("research-experiment") ? "experiments" : request.skills.includes("research-literature") ? "evidence" : request.skills.includes("research-review") ? "reviews" : "notes";
-    const outputDir = `research/${category}/${id}/attempt-${attempt}`;
+    const followup=checklist?.modules.find(module=>module.id===request.moduleId)?.followup;
+    const outputDir = followup ? `${followup.outputDir}/tasks/${id}/attempt-${attempt}` : `research/${category}/${id}/attempt-${attempt}`;
     const task: TaskRecord = {
       moduleId: request.moduleId, researchId: request.researchId, objectiveRevision: request.objectiveRevision,
       version: 1, id, attempt, status: "running", objective: request.objective, skills: request.skills,

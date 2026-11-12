@@ -16,6 +16,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: Number(process.env.VITE_DEV_PORT || 5173),
     strictPort: true,
+    watch: {
+      ignored: ['**/tests/**', '**/test-results/**', '**/playwright-report/**'],
+    },
     proxy: {
       '/api': {
         target: process.env.VITE_DEV_API || 'http://127.0.0.1:3001',

@@ -1,5 +1,5 @@
 import { presentationRole } from '../../shared/types';
-import { PresentationView } from './PresentationView';
+import { PresentationView, PresentationLoading } from './PresentationView';
 import { Dialog } from '@animate-ui/react/primitives/radix-ui/dialog';
 import { WorkflowResources, resourcesForStage, type ResourceFlowNode } from './WorkflowResources';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -24,7 +24,6 @@ import {
   FlaskConical,
   FileText,
   ScanSearch,
-  RefreshCw,
   LoaderCircle,
   Maximize2,
   Minimize2,
@@ -35,6 +34,7 @@ import {
 } from 'lucide-react';
 import type {
   PresentationState,
+  PresentationBoard,
   PresentationStage,
   Workflow as WorkflowData,
   WorkflowNode,
@@ -59,8 +59,17 @@ const ROLE_ICONS = {
 };
 function Stage({ data }: NodeProps<StageNode>) {
   const navigate = data.onNavigate as (() => void) | undefined;
-  const board = data.board as PresentationStage | undefined;
-  const busy = board?.status === 'queued' || board?.status === 'rendering';
+  const board = data.board as PresentationBoard | undefined;
+  const holder = data.presentationStage as PresentationStage | undefined;
+  const activity = holder?.activity;
+  const choices = (data.versions || []).filter(
+    (version) => version.accepted || holder?.versions?.[version.id]?.digest,
+  );
+  const selectedVersion = data.selectedVersion as string;
+  const selectVersion = data.onSelectVersion as (version: string) => void;
+  const busy = activity?.status === 'queued' || activity?.status === 'rendering';
+  const boardBusy = busy && (activity.versionId === selectedVersion ||
+    (!!data.followCurrent && activity.versionId === data.currentVersionId));
   const preview = data.onPreviewFile as (path: string, name: string) => void;
   const theme = presentationRole(data.label),
     Icon = ROLE_ICONS[theme.role];
@@ -82,7 +91,7 @@ function Stage({ data }: NodeProps<StageNode>) {
   }, [data.id, reportHeight]);
   useEffect(() => {
     setContentExpanded(false);
-  }, [board?.digest]);
+  }, [board?.digest, selectedVersion]);
   useEffect(() => {
     const inner = content.current;
     if (!inner) return;
@@ -95,7 +104,7 @@ function Stage({ data }: NodeProps<StageNode>) {
     observer.observe(inner);
     measure();
     return () => observer.disconnect();
-  }, [board?.digest, data.description, data.criteria]);
+  }, [board?.digest, board?.previewDigest, selectedVersion, data.description, data.criteria]);
   return (
     <div
       ref={element}
@@ -106,96 +115,141 @@ function Stage({ data }: NodeProps<StageNode>) {
       aria-label={data.label}
     >
       <Handle type="target" position={Position.Left} id="left" style={{ top: 130 }} />
-      <div className="presentation-node-label">
-        <Icon size={15} strokeWidth={1.7} />
-        <button
-          className="node-navigate"
-          disabled={!navigate}
-          onClick={navigate}
-          title="定位阶段会话"
-        >
-          {data.label}
-        </button>
-        <button
-          className="presentation-generate nodrag nopan"
-          disabled={busy}
-          aria-label={board?.digest ? `重新设计${data.label}展板` : `生成${data.label}展板`}
-          title={busy ? '正在设计' : board?.digest ? '重新设计展板' : '生成展板'}
-          onClick={() => (data.onRetry as () => void)?.()}
-        >
-          {busy ? (
-            <LoaderCircle size={13} className="presentation-spinner" />
-          ) : (
-            <RefreshCw size={13} />
+      <div className="presentation-node-header">
+        <div className="presentation-node-label">
+          <Icon size={15} strokeWidth={1.7} />
+          <button
+            className="node-navigate"
+            disabled={!navigate}
+            onClick={navigate}
+            title="定位阶段会话"
+          >
+            {data.label}
+          </button>
+        </div>
+        <div className="presentation-node-meta">
+          {!!choices.length && (
+            <div className="presentation-versions nodrag nopan" aria-label="展板版本">
+              {choices.map((version) => (
+                <button
+                  key={version.id}
+                  className={version.id === selectedVersion ? 'selected' : ''}
+                  aria-pressed={version.id === selectedVersion}
+                  title={`${version.objective}${version.id === data.currentVersionId ? ' · 当前有效' : ''}`}
+                  onClick={() => selectVersion(version.id)}
+                >
+                  {version.kind === 'analysis' ? '补充' : `V${version.versionNumber || 1}`}
+                  {version.id === data.currentVersionId && (
+                    <span className="presentation-current" aria-label="当前有效">
+                      {' '}
+                      · 当前
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           )}
-          {!board?.digest && !busy ? '生成展板' : null}
-        </button>
-      </div>
-      <article className="presentation-sheet">
-        <Icon
-          className="presentation-watermark"
-          data-role={theme.role}
-          size={105}
-          strokeWidth={0.8}
-        />
-        <div
-          className="presentation-content-viewport"
-          data-expanded={contentExpanded}
-          data-overflow={contentOverflows}
-          style={
-            {
-              '--presentation-content-height': `${PRESENTATION_CONTENT_HEIGHT}px`,
-            } as React.CSSProperties
-          }
-        >
-          <div className="presentation-content-inner" ref={content}>
-            {board?.digest ? (
-              <PresentationView
-                sessionId={data.sessionId as string}
-                stageId={data.id}
-                stage={board}
-                facts={data.facts as Record<string, string | number>}
-                onPreviewFile={preview}
-              />
-            ) : (
-              <div
-                className="presentation-pending"
-                aria-label={busy ? '正在绘制研究内容' : '尚未生成展板'}
-              >
-                {busy ? (
-                  <LoaderCircle size={22} className="presentation-spinner" />
-                ) : (
-                  <section className="presentation-fallback" aria-label="阶段摘要">
-                    <p>{data.description}</p>
-                    {!!data.criteria?.length && (
-                      <ul>
-                        {data.criteria.map((item, i) => (
-                          <li key={i}>{item}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                )}
-              </div>
-            )}
-          </div>
-          {contentOverflows && (
-            <button
-              className="presentation-content-toggle nodrag nopan"
-              type="button"
-              aria-expanded={contentExpanded}
-              onClick={() => setContentExpanded((expanded) => !expanded)}
+          {!!data.needsReview?.length && (
+            <span className="presentation-review" title="上游已修订，当前成果需复核">
+              需复核
+            </span>
+          )}
+          {activity && (
+            <span
+              className="presentation-update"
+              role="status"
+              title={activity.phase || '展板更新'}
             >
-              {contentExpanded ? '收起内容' : '展开内容'}
-            </button>
+              {busy ? <LoaderCircle size={12} className="presentation-spinner" /> : null}
+              {activity.status === 'failed'
+                ? '更新失败'
+                : activity.status === 'queued'
+                  ? '待更新'
+                  : '更新中'}
+            </span>
           )}
         </div>
-        {board?.error && (
-          <p className="presentation-error" role="status">
-            {board.error}
-          </p>
-        )}
-      </article>
+      </div>
+      <div className="presentation-stack" data-stacked={choices.length > 1}>
+        <article className="presentation-sheet" aria-busy={boardBusy}>
+          <Icon
+            className="presentation-watermark"
+            data-role={theme.role}
+            size={105}
+            strokeWidth={0.8}
+          />
+          <div
+            className="presentation-content-viewport"
+            data-expanded={contentExpanded}
+            data-overflow={contentOverflows}
+            style={
+              {
+                '--presentation-content-height': `${PRESENTATION_CONTENT_HEIGHT}px`,
+              } as React.CSSProperties
+            }
+          >
+            <div className="presentation-content-inner" ref={content}>
+              {board && (board.digest || board.previewDigest) ? (
+                <PresentationView
+                  sessionId={data.sessionId as string}
+                  stageId={data.id}
+                  stage={board}
+                  versionId={board.versionId || selectedVersion}
+                  facts={data.facts as Record<string, string | number>}
+                  generating={boardBusy}
+                  phase={activity?.status === 'queued' ? '等待开始' : activity?.phase}
+                  onPreviewFile={preview}
+                />
+              ) : (
+                <div
+                  className="presentation-pending"
+                  aria-label={boardBusy ? '正在绘制研究内容' : '尚未生成展板'}
+                >
+                  {boardBusy ? (
+                    <>
+                      <div className="presentation-skeleton" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                        <i />
+                      </div>
+                      <PresentationLoading
+                        phase={activity?.status === 'queued' ? '等待开始' : activity?.phase}
+                      />
+                    </>
+                  ) : (
+                    <section className="presentation-fallback" aria-label="阶段摘要">
+                      <p>{data.description}</p>
+                      {!!data.criteria?.length && (
+                        <ul>
+                          {data.criteria.map((item, i) => (
+                            <li key={i}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+            {contentOverflows && (
+              <button
+                className="presentation-content-toggle nodrag nopan"
+                type="button"
+                aria-expanded={contentExpanded}
+                onClick={() => setContentExpanded((expanded) => !expanded)}
+              >
+                {contentExpanded ? '收起内容' : '展开内容'}
+              </button>
+            )}
+          </div>
+          {board?.error && (
+            <p className="presentation-error" role="status" title={board.error}>
+              更新失败
+            </p>
+          )}
+        </article>
+      </div>
       <Handle type="source" position={Position.Bottom} id="bottom" />
       <Handle type="source" position={Position.Right} id="right" style={{ top: 130 }} />
     </div>
@@ -208,6 +262,8 @@ function FlowCanvas({
   sessionId,
   presentation,
   onPresentationRetry,
+  selectedVersions,
+  selectVersion,
   stageStarts,
   onNavigateToMessage,
   full = false,
@@ -221,6 +277,8 @@ function FlowCanvas({
   sessionId: string;
   presentation?: PresentationState;
   onPresentationRetry: (stage?: string) => void;
+  selectedVersions: Record<string, string>;
+  selectVersion: (stage: string, version: string) => void;
   stageStarts: Map<string, string>;
   onNavigateToMessage: (messageId: string) => void;
   full?: boolean;
@@ -275,7 +333,24 @@ function FlowCanvas({
     const result: FlowNode[] = [];
     for (const [index, node] of workflow.nodes.entries()) {
       const x = 20 + index * (width + STAGE_GAP);
-      const resources = resourcesForStage(node, artifacts);
+      const holder = presentation?.stages[node.id];
+      const requested = selectedVersions[node.id] || node.currentVersionId || node.id;
+      let board: PresentationBoard | undefined =
+        holder?.versions?.[requested] ||
+        (holder && (!holder.versions || holder.versionId === requested) ? holder : undefined);
+      if (!selectedVersions[node.id] && !board?.digest && !board?.previewDigest && holder?.digest)
+        board = holder;
+      const selectedVersion =
+        board?.digest || board?.previewDigest ? board.versionId || node.id : requested;
+      const version = node.versions?.find((version) => version.id === selectedVersion);
+      const resources = resourcesForStage(
+        {
+          ...node,
+          evidence: version?.evidence || node.evidence,
+          currentVersionId: selectedVersion,
+        },
+        artifacts,
+      );
       result.push({
         id: node.id,
         type: 'stage',
@@ -283,8 +358,13 @@ function FlowCanvas({
         style: { width },
         data: {
           ...node,
+          description: version?.objective || node.description,
           sessionId,
-          board: presentation?.stages[node.id],
+          board,
+          presentationStage: holder,
+          selectedVersion,
+          followCurrent: !selectedVersions[node.id],
+          onSelectVersion: (version: string) => selectVersion(node.id, version),
           facts: presentation?.facts[node.id] || {},
           onHeight: reportHeight,
           onPreviewFile,
@@ -316,6 +396,8 @@ function FlowCanvas({
     reportHeight,
     sessionId,
     presentation,
+    selectedVersions,
+    selectVersion,
     onPresentationRetry,
     stageStarts,
     onNavigateToMessage,
@@ -453,6 +535,13 @@ export function Workflow({
   artifacts: Artifact[];
   onPreviewFile: (path: string, name: string) => void;
 }) {
+  const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
+  const selectVersion = useCallback((stage: string, version: string) => {
+    setSelectedVersions((previous) => ({ ...previous, [stage]: version }));
+  }, []);
+  useEffect(() => {
+    setSelectedVersions({});
+  }, [sessionId]);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenWidth, setFullscreenWidth] = useState<number>();
   const instanceRef = useRef<ReactFlowInstance<FlowNode> | null>(null);
@@ -537,6 +626,8 @@ export function Workflow({
           sessionId={sessionId}
           presentation={presentation}
           onPresentationRetry={onPresentationRetry}
+          selectedVersions={selectedVersions}
+          selectVersion={selectVersion}
           workflow={workflow}
           stageStarts={stageStarts}
           onNavigateToMessage={navigate}
@@ -564,7 +655,7 @@ export function Workflow({
           </span>
           <span className="flow-pan-hint">左右拖动查看后续节点</span>
         </div>
-        <ResearchActivity messages={messages} />
+        <ResearchActivity messages={messages} presentation={presentation} workflow={workflow} />
       </section>
       {fullscreen && (
         <Dialog.Root open onOpenChange={setFullscreen}>
@@ -608,6 +699,8 @@ export function Workflow({
                 sessionId={sessionId}
                 presentation={presentation}
                 onPresentationRetry={onPresentationRetry}
+                selectedVersions={selectedVersions}
+                selectVersion={selectVersion}
                 workflow={workflow}
                 stageStarts={stageStarts}
                 onNavigateToMessage={navigate}
@@ -620,8 +713,12 @@ export function Workflow({
                 }}
                 running={running}
               />
-              <div className="flow-legend">拖动画布平移，滚轮缩放，点击适应画布查看完整流程</div>
-              <ResearchActivity messages={messages} />
+              <div className="flow-legend">滚轮或拖动画布平移，捏合或点击加减缩放</div>
+              <ResearchActivity
+                messages={messages}
+                presentation={presentation}
+                workflow={workflow}
+              />
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>

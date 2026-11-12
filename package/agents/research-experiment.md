@@ -3,6 +3,7 @@ name: research-experiment
 description: 依据方法与实际环境执行实验，对改进任务有界迭代优化并核验目标达成，交付真实结果与执行记录。
 advertise: true
 tools: read, bash, write, edit, web_search, fetch_content, get_search_content
+subagentOnlyExtensions: ../extensions/researcher/boundaries.ts
 systemPromptMode: append
 inheritProjectContext: false
 inheritGlobalContext: false

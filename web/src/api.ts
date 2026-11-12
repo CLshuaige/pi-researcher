@@ -5,6 +5,7 @@ export interface UserSettings {
 }
 import type {
   PresentationState,
+  PresentationSource,
   Attachment,
   ConfigKey,
   ConfigResponse,
@@ -25,7 +26,10 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     },
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+  if (!response.ok)
+    throw Object.assign(new Error(data.error || `请求失败（${response.status}）`), {
+      status: response.status,
+    });
   return data as T;
 }
 const post = <T>(path: string, body = {}) =>
@@ -36,9 +40,9 @@ export const api = {
     post<PresentationState>(`/sessions/${id}/presentation/visible`, { visible, viewer }),
   presentationRetry: (id: string, stageId?: string) =>
     post<PresentationState>(`/sessions/${id}/presentation/retry`, { stageId }),
-  presentationDocument: (id: string, stage: string) =>
-    request<{ html: string; token: string; digest: string }>(
-      `/sessions/${id}/presentation/${stage}`,
+  presentationDocument: (id: string, stage: string, version?: string, preview = false) =>
+    request<{ html: string; token: string; digest: string; sources: PresentationSource[] }>(
+      `/sessions/${id}/presentation/${stage}?${new URLSearchParams({ ...(version ? { version } : {}), ...(preview ? { preview: '1' } : {}) })}`,
     ),
   userSettings: () => request<UserSettings>('/settings/user'),
   saveUserSettings: (settings: {

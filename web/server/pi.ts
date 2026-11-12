@@ -306,6 +306,8 @@ export class PiBridge {
       );
       if (selected) await session.setModel(selected);
     }
+    // Pi model selection restores its saved default; reapply the web session preference.
+    session.setThinkingLevel(s.thinkingLevel || 'medium');
     if (session.model) s.model = `${session.model.provider}/${session.model.id}`;
     const live: Live = { session, unsubscribe: () => {}, users: new Map() };
     this.live.set(s.id, live);
@@ -778,6 +780,7 @@ export class PiBridge {
     );
     if (!selected) throw new Error('模型不存在：' + model);
     await live.session.setModel(selected);
+    live.session.setThinkingLevel(s.thinkingLevel || 'medium');
   }
   async setThinkingLevel(
     s: StoredSession,

@@ -605,13 +605,25 @@
   box-shadow: none;
   cursor: default;
 }
+.presentation-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 4px 9px;
+}
 .presentation-node-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 0 4px 9px;
   color: var(--stage-color);
+}
+.presentation-node-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 .presentation-node-label .node-navigate {
   flex: 0 1 auto;
@@ -683,6 +695,7 @@
   animation: research-spin 1.8s linear infinite;
 }
 .presentation-frame-wrap {
+  position: relative;
   display: block;
   background: var(--panel);
 }
@@ -734,6 +747,71 @@
 .presentation-content-toggle:hover {
   background: var(--panel-soft);
 }
+.presentation-skeleton {
+  display: grid;
+  gap: 15px;
+  width: 100%;
+  min-height: 220px;
+  padding: 26px 24px;
+  align-content: start;
+}
+.presentation-skeleton i {
+  display: block;
+  height: 13px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--stage-color) 9%, var(--panel-soft));
+}
+.presentation-skeleton i:first-child {
+  width: 38%;
+  height: 21px;
+  margin-bottom: 12px;
+}
+.presentation-skeleton i:nth-child(3) {
+  width: 88%;
+}
+.presentation-skeleton i:last-child {
+  width: 64%;
+}
+.presentation-loading-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 20%, transparent);
+}
+.presentation-loading-mask::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    color-mix(in srgb, var(--panel) 50%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: presentation-loading-sweep 3.4s ease-in-out infinite;
+}
+.presentation-loading-label {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+@keyframes presentation-loading-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
 .presentation-frame {
   display: block;
   width: 100%;
@@ -751,7 +829,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .presentation-node[data-status='running'] .presentation-sheet,
-  .presentation-spinner {
+  .presentation-spinner,
+  .presentation-loading-mask::before {
     animation: none;
   }
 }
@@ -794,4 +873,75 @@
   margin: 0;
   padding-left: 18px;
   color: var(--muted);
+}
+
+/* Research versions share one node; only the selected sheet owns an iframe. */
+.presentation-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+.presentation-versions button {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.presentation-versions button.selected {
+  color: var(--stage-color);
+  border-color: var(--stage-color);
+  background: color-mix(in srgb, var(--stage-color) 7%, var(--panel));
+}
+.presentation-current {
+  font-size: 9px;
+}
+.presentation-stack {
+  position: relative;
+  isolation: isolate;
+}
+.presentation-stack[data-stacked='true'] {
+  margin-bottom: 12px;
+}
+.presentation-stack[data-stacked='true']::before,
+.presentation-stack[data-stacked='true']::after {
+  content: '';
+  position: absolute;
+  inset: 4px 4px -5px;
+  border: 1px solid color-mix(in srgb, var(--stage-color) 22%, var(--line));
+  border-radius: 12px;
+  background: var(--panel);
+  z-index: -1;
+}
+.presentation-stack[data-stacked='true']::before {
+  inset: 8px 8px -10px;
+}
+.presentation-update {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.presentation-review {
+  color: #a07838;
+  font-size: 10px;
+}
+.presentation-activity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 7px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.presentation-activity span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }

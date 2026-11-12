@@ -3,6 +3,7 @@ name: research-literature
 description: 检索和阅读学术资料，交付文献综合与来源索引。
 advertise: true
 tools: read, bash, write, edit, web_search, fetch_content, get_search_content, academic_search, paper_lookup, paper_citations, download_pdf, fetch_arxiv
+subagentOnlyExtensions: ../extensions/researcher/boundaries.ts
 systemPromptMode: append
 inheritProjectContext: false
 inheritGlobalContext: false

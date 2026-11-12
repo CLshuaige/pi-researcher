@@ -13,6 +13,19 @@ export function resourcesForStage(stage: WorkflowNode, artifacts: Artifact[]): A
   const evidence = (stage.evidence || [])
     .filter((path) => !/^https?:/.test(path))
     .map((path) => path.replace(/^\.\//, '').replace(/\/$/, ''));
+  const version = stage.versions?.find((version) => version.id === stage.currentVersionId);
+  if (stage.versions && (evidence.length || version?.outputDir)) {
+    const roots = [...evidence, ...(version?.outputDir ? [version.outputDir] : [])];
+    const selected = all.filter((item) =>
+      roots.some((root) => root === item.path || root.endsWith('/' + item.path)),
+    );
+    return selected.filter(
+      (item) =>
+        !selected.some(
+          (parent) => parent.kind === 'directory' && item.path.startsWith(parent.path + '/'),
+        ),
+    );
+  }
   const roots: string[] = [];
   for (const [pattern, paths] of [
     [/任务|task/i, ['task.md']],

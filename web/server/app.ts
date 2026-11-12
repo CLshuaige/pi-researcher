@@ -185,7 +185,14 @@ export async function createApp(root: string, dataDir: string) {
   app.get('/api/sessions/:id/presentation/:stageId', async (req, res) => {
     res
       .set('Cache-Control', 'no-store')
-      .json(await service.presentation.document(session(req), String(req.params.stageId)));
+      .json(
+        await service.presentation.document(
+          session(req),
+          String(req.params.stageId),
+          typeof req.query.version === 'string' ? req.query.version : undefined,
+          req.query.preview === '1',
+        ),
+      );
   });
   async function checkedAttachments(sid: string, raw: unknown): Promise<Attachment[]> {
     if (raw === undefined) return [];

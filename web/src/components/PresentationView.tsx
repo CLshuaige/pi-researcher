@@ -1,52 +1,93 @@
 import { useReactFlow } from '@xyflow/react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import type { PresentationStage } from '../../shared/types';
+import type { PresentationBoard, PresentationSource } from '../../shared/types';
+import { LoaderCircle } from 'lucide-react';
+
+export function PresentationLoading({ phase = '准备展板' }: { phase?: string }) {
+  return (
+    <div className="presentation-loading-mask" role="status" aria-live="polite">
+      <span className="presentation-loading-label">
+        <LoaderCircle size={15} className="presentation-spinner" />
+        正在生成 {phase}
+      </span>
+    </div>
+  );
+}
+
 export function PresentationView({
   sessionId,
   stageId,
+  versionId,
   stage,
   facts,
+  generating = false,
+  phase,
   onPreviewFile,
 }: {
   sessionId: string;
   stageId: string;
-  stage: PresentationStage;
+  versionId?: string;
+  stage: PresentationBoard;
   facts: Record<string, string | number>;
+  generating?: boolean;
+  phase?: string;
   onPreviewFile: (path: string, name: string) => void;
 }) {
   const flow = useReactFlow();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [document, setDocument] = useState<{ html: string; token: string }>();
+  const [document, setDocument] = useState<{
+    html: string;
+    token: string;
+    digest: string;
+    sources: PresentationSource[];
+    key: string;
+  }>();
+  const [loadedDigest, setLoadedDigest] = useState('');
   const [error, setError] = useState('');
   const [height, setHeight] = useState(180);
+  const key = JSON.stringify([sessionId, stageId, versionId]);
+  const shown = document?.key === key ? document : undefined;
+  const preview = generating && !!stage.previewDigest;
+  const targetDigest = preview ? stage.previewDigest : stage.digest;
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setError('');
-    api
-      .presentationDocument(sessionId, stageId)
-      .then((result) => {
-        if (!cancelled) setDocument(result);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
-      });
+    const read = async (attempt = 0) => {
+      try {
+        const result = await api.presentationDocument(sessionId, stageId, versionId, preview);
+        if (!cancelled) setDocument({ ...result, key });
+      } catch (e) {
+        if (cancelled) return;
+        const error = e as Error & { status?: number };
+        if ((error.status === 409 || error.status === 404) && attempt < 3) {
+          timer = setTimeout(() => void read(attempt + 1), 250);
+        } else setError(error.message);
+      }
+    };
+    void read();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [sessionId, stageId, stage.digest]);
+  }, [sessionId, stageId, versionId, key, targetDigest, preview]);
+  useEffect(() => {
+    setHeight(180);
+    setLoadedDigest('');
+  }, [key]);
   const update = () =>
     frame.current?.contentWindow?.postMessage(
-      { type: 'presentation-facts', token: document?.token, facts },
+      { type: 'presentation-facts', token: shown?.token, facts },
       '*',
     );
-  useEffect(update, [document, facts]);
+  useEffect(update, [shown, facts]);
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (
-        !document ||
+        !shown ||
         event.source !== frame.current?.contentWindow ||
-        event.data?.token !== document.token
+        event.data?.token !== shown.token
       )
         return;
       if (event.data.type === 'presentation-zoom') {
@@ -88,32 +129,45 @@ export function PresentationView({
         return;
       }
       if (event.data.type !== 'presentation-source') return;
-      const source = stage.sources.find((source) => source.id === event.data.id);
+      const source = (shown.sources || stage.sources).find((source) => source.id === event.data.id);
       if (source) onPreviewFile(source.path, source.title);
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [document, stage.sources, onPreviewFile, flow]);
+  }, [shown, stage.sources, onPreviewFile, flow]);
+  const loading = generating || (!error && (!shown || loadedDigest !== targetDigest));
   return (
-    <div className="presentation-frame-wrap nodrag nopan">
+    <div className="presentation-frame-wrap nodrag nopan" aria-busy={loading}>
       {error && (
         <p role="status" className="presentation-error">
           {error}
         </p>
       )}
-      {document && (
+      {shown && (
         <iframe
+          key={key}
           ref={frame}
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
           style={{ height }}
           scrolling="no"
           title={`${stageId} 研究展板`}
-          srcDoc={document.html}
-          onLoad={update}
+          srcDoc={shown.html}
+          onLoad={() => {
+            update();
+            setLoadedDigest(shown.digest);
+          }}
           className="presentation-frame"
         />
       )}
-      {!document && !error && <p>正在读取展板…</p>}
+      {!shown && (
+        <div className="presentation-skeleton" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
+      )}
+      {loading && <PresentationLoading phase={generating ? phase : '读取展板'} />}
     </div>
   );
 }

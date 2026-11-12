@@ -53,7 +53,21 @@ export interface ChatMessage {
   thinking?: string;
   thinkingStatus?: StepStatus;
 }
+export interface WorkflowVersion {
+  id: string;
+  versionNumber?: number;
+  kind: 'revision' | 'analysis';
+  accepted: boolean;
+  status: StepStatus;
+  objective: string;
+  evidence: string[];
+  outputDir?: string;
+  baseVersionId?: string;
+}
 export interface WorkflowNode {
+  versions?: WorkflowVersion[];
+  currentVersionId?: string;
+  needsReview?: string[];
   statusLabel?: string;
   criteria?: string[];
   evidence?: string[];
@@ -189,16 +203,35 @@ export interface PresentationSource {
   id: string;
   path: string;
   title: string;
+  assetPath?: string;
 }
-export interface PresentationStage {
+export interface PresentationBoard {
   status: 'queued' | 'rendering' | 'ready' | 'failed';
   sourceDigest?: string;
+  inputKey?: string;
+  versionId?: string;
+  versionNumber?: number;
+  kind?: 'revision' | 'analysis';
+  phase?: string;
   dependencies?: string[];
   sessionFile?: string;
   digest?: string;
+  /** Transient preview revision; never identifies a published research board. */
+  previewDigest?: string;
   updatedAt?: number;
   error?: string;
   sources: PresentationSource[];
+}
+export interface PresentationStage extends PresentationBoard {
+  currentVersionId?: string;
+  versions?: Record<string, PresentationBoard>;
+  activity?: { versionId: string; status: 'queued' | 'rendering' | 'failed'; phase?: string };
+  lastUpdate?: {
+    versionId: string;
+    versionNumber?: number;
+    kind: 'revision' | 'analysis';
+    updatedAt: number;
+  };
 }
 export interface PresentationState {
   enabled: boolean;

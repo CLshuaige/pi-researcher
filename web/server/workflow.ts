@@ -1,7 +1,7 @@
 import { RESEARCH_STAGE_LABELS } from '../shared/research.ts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Workflow, StepStatus, Artifact } from '../shared/types.ts';
+import type { Workflow, StepStatus, Artifact, WorkflowVersion } from '../shared/types.ts';
 
 export function defaultWorkflow(): Workflow {
   return {
@@ -92,6 +92,46 @@ export function parseChecklist(value: unknown): Workflow {
     };
     const ids = new Set(checklist.modules.map((m: any) => m.id));
     if (ids.size !== checklist.modules.length) throw new Error('Checklist 模块 ID 重复');
+    for (const module of checklist.modules)
+      if ((module.dependencies || []).some((id: string) => !ids.has(id)))
+        throw new Error('Checklist 依赖不存在');
+    const originals = checklist.modules.filter((m: any) => !m.followup);
+    const stepStatus = (status: string): StepStatus =>
+      status === 'completed'
+        ? 'completed'
+        : status === 'running' || status === 'awaiting_acceptance'
+          ? 'running'
+          : status === 'blocked'
+            ? 'failed'
+            : status === 'skipped'
+              ? 'cancelled'
+              : 'pending';
+    const versionsFor = (original: any): WorkflowVersion[] => {
+      let number = original.versionNumber ?? 1;
+      return [
+        original,
+        ...checklist.modules.filter((m: any) => m.followup?.targetModuleId === original.id),
+      ].map((m: any) => ({
+        id: m.id,
+        versionNumber:
+          m.followup?.kind === 'analysis'
+            ? undefined
+            : m === original
+              ? number
+              : (number = m.versionNumber ?? number + 1),
+        kind: m.followup?.kind ?? 'revision',
+        accepted:
+          m.status === 'completed' &&
+          (m.acceptedRevision === undefined ||
+            checklist.objectiveRevision === undefined ||
+            m.acceptedRevision === checklist.objectiveRevision),
+        status: stepStatus(m.status),
+        objective: m.objective,
+        evidence: m.evidence || [],
+        outputDir: m.followup?.outputDir,
+        baseVersionId: m.followup?.baseVersionId,
+      }));
+    };
     return {
       source: 'checklist',
       ...(['running', 'waiting', 'paused', 'stopped', 'completed'].includes(
@@ -100,48 +140,50 @@ export function parseChecklist(value: unknown): Workflow {
         ? {
             control: {
               state: checklist.control.state,
-              ...(typeof checklist.control.reason === 'string' ? { reason: checklist.control.reason } : {}),
+              ...(typeof checklist.control.reason === 'string'
+                ? { reason: checklist.control.reason }
+                : {}),
               ...(Number.isFinite(checklist.control.wakeAt)
                 ? { wakeAt: checklist.control.wakeAt }
                 : {}),
             },
           }
         : {}),
-      nodes: checklist.modules.map((m: any, i: number) => ({
-        id: m.id,
-        label:
-          (m.skills || []).map((skill: string) => names[skill] || skill).join(' / ') ||
-          names['research-' + m.id] ||
-          m.id,
-        description: m.objective,
-        status:
-          m.status === 'completed'
-            ? 'completed'
-            : m.status === 'running' || m.status === 'awaiting_acceptance'
+      nodes: originals.map((m: any, i: number) => {
+        const versions = versionsFor(m);
+        const currentVersionId = m.currentVersionId || m.id;
+        const effective = versions.find((v) => v.id === currentVersionId) || versions[0];
+        const active = versions.find(
+          (v) =>
+            v.id !== m.id && !v.accepted && ['pending', 'running', 'failed'].includes(v.status),
+        );
+        return {
+          id: m.id,
+          label:
+            (m.skills || []).map((skill: string) => names[skill] || skill).join(' / ') ||
+            names['research-' + m.id] ||
+            m.id,
+          description: effective.objective,
+          status: active
+            ? active.status === 'pending'
               ? 'running'
-              : m.status === 'blocked'
-                ? 'failed'
-                : m.status === 'skipped'
-                  ? 'cancelled'
-                  : 'pending',
-        statusLabel: labels[m.status] || m.status,
-        criteria: m.criteria || [],
-        evidence: m.evidence || [],
-        reason: m.reason || '',
-        x: 20,
-        y: i * 150,
-      })),
-      // Execution is ordered even when modules omit explicit dependencies.
-      edges: checklist.modules.flatMap((m: any, i: number) =>
-        [
-          ...new Set<string>([
-            ...(i ? [checklist.modules[i - 1].id] : []),
-            ...(m.dependencies || []),
-          ]),
-        ].map((source: string) => {
-          if (!ids.has(source)) throw new Error('Checklist 依赖不存在');
-          return { source, target: m.id };
-        }),
+              : active.status
+            : effective.status,
+          statusLabel: active ? '修订中' : labels[m.status] || m.status,
+          criteria: m.criteria || [],
+          evidence: effective.evidence,
+          reason: m.reason || '',
+          versions,
+          currentVersionId,
+          needsReview: m.needsReview || [],
+          x: 20,
+          y: i * 150,
+        };
+      }),
+      edges: originals.flatMap((m: any, i: number) =>
+        [...new Set<string>([...(i ? [originals[i - 1].id] : []), ...(m.dependencies || [])])]
+          .filter((source) => source !== m.id && originals.some((n: any) => n.id === source))
+          .map((source) => ({ source, target: m.id })),
       ),
     };
   }
