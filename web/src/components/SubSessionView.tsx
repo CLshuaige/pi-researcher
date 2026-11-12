@@ -64,6 +64,8 @@ export function SubSessionView({
     files = sub.artifacts || [];
   const tools = sub.messages.filter((m) => m.role === 'tool').slice(-6);
   const latestTool = tools.at(-1);
+  const latestAssistant = sub.messages.filter((m) => m.role === 'assistant' && (m.thinking !== undefined || m.thinkingStatus === 'running')).at(-1);
+  const latestThinking = latestAssistant?.thinking?.trim() || (running ? '等待子代理思考…' : '暂无思考内容');
   const latestComment = sub.messages.filter(m => m.role === 'assistant' && m.text.trim()).at(-1)?.text;
   const lastActivity = sub.lastActivityAt || latestTool?.timestamp;
   const summary =
@@ -104,9 +106,7 @@ export function SubSessionView({
               {duration(sub.startedAt, sub.endedAt || now)}
             </span>
           </div>
-          {sub.objective && sub.objective !== title && (
-            <p className="sub-session-objective">{sub.objective}</p>
-          )}
+          <p className="sub-session-objective">{latestThinking}</p>
           <Tabs.Root defaultValue="progress">
             <Tabs.List className="sub-session-tabs" aria-label="子任务内容">
               <Tabs.Trigger value="progress">进展</Tabs.Trigger>
