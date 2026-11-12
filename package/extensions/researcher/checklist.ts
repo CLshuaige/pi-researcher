@@ -35,7 +35,7 @@ export function currentModule(c: Checklist): ResearchModule | undefined {
 export function checklistState(c?: Checklist, inbox: string[] = [], jobs: JobRecord[] = []) {
   const selected = c ? currentModule(c) : undefined;
   const pendingInstructions = [...(c?.control.instructions.filter(i => !i.resolution) ?? []), ...inbox.map(text => ({ text }))];
-  const unhandled = pendingInstructions.filter(i => !('followupModuleId' in i && i.followupModuleId));
+  const unhandled = pendingInstructions.filter(i => !('followupModuleId' in i && i.followupModuleId) && !('planned' in i && i.planned));
   const nextAction = !c ? 'init' : c.control.state==='paused' || c.control.state==='stopped' ? 'finish the current response; wait for explicit continuation' : unhandled.length ? (selected ? 'resolve unrelated instructions or create a scoped followup' : c.modules.length ? 'answer with resolve(response), or create a followup for requested artifacts' : 'answer conversationally with resolve(response), or resolve the research objective and plan initial modules') : c.control.state === 'waiting' ? 'wait for user input, job completion or scheduled wake' : !c.modules.length ? (c.control.instructions.length && c.control.instructions.every(i=>i.resolution && i.response?.trim()) ? 'finish' : 'plan')
     : selected?.status === 'pending' ? 'start' : selected?.status === 'blocked' ? 'resolve blocker or explicitly skip with reason'
     : selected?.status === 'awaiting_acceptance' ? 'verify evidence then accept' : selected ? 'execute current module' : 'finish';

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Check,
@@ -297,15 +297,25 @@ export function ChecklistView({ text, prevText }: { text: string; prevText?: str
 }
 
 export function ChecklistDock({
+  sessionId,
   text,
   prevText,
   controlState,
 }: {
+  sessionId: string;
   text: string;
   prevText?: string;
   controlState?: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const storageKey = `gewu-checklist-dock-${sessionId}`;
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved === null ? true : saved === 'expanded';
+    } catch {
+      return true;
+    }
+  });
   const panelId = useId();
   const data = useMemo(() => {
     try {
@@ -314,30 +324,6 @@ export function ChecklistDock({
       return null;
     }
   }, [text]);
-  const taskSignature = JSON.stringify(
-    data && {
-      objective: data.objective,
-      objectiveRevision: data.objectiveRevision,
-      currentModuleId: data.currentModule?.id,
-      nextAction: data.nextAction,
-      modules: data.modules?.map(
-        ({ id, objective, status, reason, evidence, acceptance, criteria }) => ({
-          id,
-          objective,
-          status,
-          reason,
-          evidence,
-          acceptance,
-          criteria,
-        }),
-      ),
-    },
-  );
-  const previousTaskSignature = useRef(taskSignature);
-  useEffect(() => {
-    if (previousTaskSignature.current !== taskSignature) setExpanded(true);
-    previousTaskSignature.current = taskSignature;
-  }, [taskSignature]);
   if (!data?.modules?.length) return null;
 
   const state = controlState ?? data.control?.state;
@@ -393,7 +379,13 @@ export function ChecklistDock({
         aria-label={`${expanded ? '收起' : '展开'}研究清单`}
         aria-expanded={expanded}
         aria-controls={panelId}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => {
+          const next = !expanded;
+          setExpanded(next);
+          try {
+            localStorage.setItem(storageKey, next ? 'expanded' : 'collapsed');
+          } catch {}
+        }}
       >
         {icon}
         <span className="checklist-dock-current" title={title}>

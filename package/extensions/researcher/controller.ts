@@ -321,7 +321,7 @@ export class ResearchController {
       const c = this.store!.read();
       if (c && !this.pending.length && this.store!.complete(c)) return { state: 'completed' as const, reason: 'All modules accepted' };
       if (c && this.answerRevision === c.revision && !this.pending.length && !c.control.instructions.some(i => !i.resolution) && !this.asyncDelegations.size && !this.store!.files.activeWork().length) return { state: 'paused' as const, reason: 'Read-only answer finished; remaining research preserved' };
-      const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution && !i.followupModuleId);
+      const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution && !i.followupModuleId && !i.planned);
       if (!unresolved && !this.pendingEvents().length && (this.asyncDelegations.size || this.waitRequested || this.store!.files.jobs().some(j => j.status === 'running'))) {
         return { state: 'waiting' as const, reason: 'Waiting for child agents, managed jobs or scheduled check' };
       }
@@ -329,7 +329,7 @@ export class ResearchController {
       this.stagnant = fingerprint === this.last ? this.stagnant + 1 : 0;
       this.last = fingerprint;
       if (this.stagnant >= 3) return { state: 'paused' as const, reason: 'No checklist progress across repeated continuations' };
-      if (c?.modules.length && !this.pending.length && !c.control.instructions.some(i => !i.resolution && !i.followupModuleId) && currentModule(c)?.status === 'blocked') return { state: 'paused' as const, reason: 'Remaining work blocked; inspect checklist' };
+      if (c?.modules.length && !unresolved && currentModule(c)?.status === 'blocked') return { state: 'paused' as const, reason: 'Remaining work blocked; inspect checklist' };
       return { state: 'continue' as const, reason: 'Continue unfinished research', checklist: c };
     } catch {
       return this.continuations >= 3 ? { state: 'paused' as const, reason: 'Checklist repair failed' }

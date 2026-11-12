@@ -293,6 +293,7 @@ export function Conversation({
       {checklistState && (
         <ChecklistDock
           key={s.id}
+          sessionId={s.id}
           text={checklistState.text}
           prevText={checklistState.prevText}
           controlState={s.workflow.control?.state}
