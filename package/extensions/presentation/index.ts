@@ -1,3 +1,5 @@
+import { relative } from "node:path";
+import { workspacePath } from "../researcher/store.ts";
 import { Type } from "typebox";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
@@ -10,7 +12,15 @@ export interface PresentationJob {
   ): Promise<
     string | { text: string; image?: { data: string; mimeType: string } }
   >;
+  workspace?: string;
+  draftPath?: string;
+  readable?(path: string): boolean;
+  observed?(path: string): Promise<void>;
+  progress?(phase: string): void;
+  previewFile?(): Promise<void>;
+  publishFailed?(error: string): void;
   publish(html: string): Promise<void>;
+  publishFile?(): Promise<void>;
   style?(css: string): Promise<void>;
 }
 /** Web-owned job capability, deliberately absent from the default Pi package entry. */
@@ -25,13 +35,79 @@ export function presentationExtension(job: PresentationJob): ExtensionFactory {
     pi.on("session_shutdown", () => {
       closed = true;
     });
-    pi.on("tool_call", () => {
+    pi.on("tool_call", (event) => {
       if (closed || job.signal.aborted || failures >= 2)
         return {
           block: true,
           terminate: true,
           reason: "展示任务已停止；保留上一份展板。",
         };
+      if (
+        event.toolName === "read" ||
+        event.toolName === "write" ||
+        event.toolName === "edit"
+      ) {
+        try {
+          if (!job.workspace || !job.draftPath)
+            throw new Error("未分配展板编辑路径。");
+          const path = workspacePath(
+            job.workspace,
+            String(event.input.path || ""),
+          );
+          const draft = workspacePath(job.workspace, job.draftPath);
+          event.input.path = path;
+          if (event.toolName === "read") {
+            if (
+              path !== draft &&
+              !job.readable?.(relative(job.workspace, path))
+            )
+              throw new Error("只能读取项目研究材料和本次展板。");
+            job.progress?.("读取材料");
+          } else {
+            if (path !== draft)
+              throw new Error("仅可编辑本次展板文件；科研材料及其他展板只读。");
+            job.progress?.("更新图文");
+          }
+        } catch (error) {
+          return { block: true, reason: String(error) };
+        }
+      }
+    });
+    pi.on("tool_result", async (event) => {
+      if (
+        event.toolName === "read" &&
+        !event.isError &&
+        job.workspace &&
+        job.draftPath
+      ) {
+        const path = workspacePath(
+          job.workspace,
+          String(event.input.path || ""),
+        );
+        if (path !== workspacePath(job.workspace, job.draftPath))
+          await job.observed?.(relative(job.workspace, path));
+      }
+      if (
+        ["write", "edit"].includes(event.toolName) &&
+        !event.isError &&
+        !closed &&
+        !job.signal.aborted
+      ) {
+        try {
+          await job.previewFile?.();
+        } catch (error) {
+          // The edit succeeded. Keep the last valid preview and ask the agent to repair the draft.
+          return {
+            content: [
+              ...event.content,
+              {
+                type: "text" as const,
+                text: `草稿已保存，但预览未更新：${String(error)}。请修复完整结构后继续编辑。`,
+              },
+            ],
+          };
+        }
+      }
     });
     pi.registerTool({
       name: "presentation_list",
@@ -94,7 +170,7 @@ export function presentationExtension(job: PresentationJob): ExtensionFactory {
       label: "Publish research board",
       executionMode: "sequential",
       description:
-        "Publish new content with html, or restyle an existing board with css alone to preserve its content/figures and avoid rewriting them. Supply exactly one. A successful call is required for delivery.",
+        "Publish the assigned HTML draft after editing it with native read/edit/write tools: call with {}. Alternatively supply html for a new board, or css alone for style changes. A successful call is required for delivery.",
       parameters: Type.Object(
         {
           html: Type.Optional(Type.String({ minLength: 1, maxLength: 60000 })),
@@ -105,10 +181,12 @@ export function presentationExtension(job: PresentationJob): ExtensionFactory {
       async execute(_id, p) {
         try {
           check();
+          job.progress?.("发布展板");
           if (p.html && !p.css) await job.publish(p.html);
-          else if (p.css && !p.html && job.style) await job.style(p.css);
-          else
-            throw new Error("提供 html 或 css 其中一项；css 仅用于已有展板。");
+          else if (!p.html && !p.css && job.publishFile)
+            await job.publishFile();
+          else if (!p.html && p.css && job.style) await job.style(p.css);
+          else throw new Error("仅提供 html、css 或空参数发布本次文件。");
           closed = true;
           return {
             details: {},
@@ -116,6 +194,7 @@ export function presentationExtension(job: PresentationJob): ExtensionFactory {
           };
         } catch (error) {
           failures++;
+          job.publishFailed?.(error instanceof Error ? error.message : String(error));
           return {
             details: {},
             content: [{ type: "text", text: String(error) }],

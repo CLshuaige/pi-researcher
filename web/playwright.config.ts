@@ -3,6 +3,8 @@ const testData = `/tmp/gewu-browser-${Date.now()}`;
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/*.spec.ts',
+  // Presentation suites use their own deterministic host and Playwright config.
+  testIgnore: ['**/presentation.spec.ts', '**/presentation-progress.spec.ts'],
   fullyParallel: false,
   workers: 1,
   timeout: 30000,

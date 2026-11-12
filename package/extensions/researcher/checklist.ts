@@ -15,7 +15,7 @@ export const ModuleSchema = Type.Object({
   evidence: Strings, acceptance: Strings, reason: Type.String(),
 });
 export type ResearchModule = Static<typeof ModuleSchema> & {
-  taskIds: string[]; acceptedRevision?: number; currentVersionId?: string; needsReview?: string[];
+  taskIds: string[]; acceptedRevision?: number; versionNumber?: number; currentVersionId?: string; needsReview?: string[];
   followup?: { kind: 'analysis' | 'revision'; instructionId: string; targetModuleId: string; outputDir: string;
     baseVersionId: string; baseRevision: number; baseline: { path: string; sha256: string; snapshot: string }[];
     affectedModules: string[]; impact: string };
@@ -23,7 +23,7 @@ export type ResearchModule = Static<typeof ModuleSchema> & {
 export interface Checklist {
   schemaVersion: 1; researchId: string; revision: number; objective: string; objectiveRevision: number;
   modules: ResearchModule[];
-  control: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; reason: string; continuations: number; startedAt: number; wakeAt?: number; wait?: { id: string; objectiveRevision: number; jobIds: string[]; wakeAt?: number; state: 'requested' | 'waiting' }; instructions: { id: string; text: string; resolution?: string; response?: string; followupModuleId?: string; requiresArtifact?: boolean }[] };
+  control: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; reason: string; continuations: number; startedAt: number; wakeAt?: number; wait?: { id: string; objectiveRevision: number; jobIds: string[]; wakeAt?: number; state: 'requested' | 'waiting' }; instructions: { id: string; text: string; resolution?: string; response?: string; followupModuleId?: string; requiresArtifact?: boolean; planned?: boolean }[] };
   audit: { sequence: number; time: string; source: string; reason: string }[];
 }
 /** Modules execute in array order; blocked work is not silently bypassed. */
@@ -42,7 +42,7 @@ export function checklistState(c?: Checklist, inbox: string[] = [], jobs: JobRec
   const describe = (m: ResearchModule) => ({...m, ...(m.followup ? {followup:{...m.followup,baseline:undefined,baselineFileCount:m.followup.baseline.length}} : {})});
   return { ...(jobs.length ? { jobs: jobs.map(({ id, moduleId, status, logPath, exitCode, error }) => ({ id, moduleId, status, logPath, exitCode, error })) } : {}), initialized: Boolean(c), revision: c?.revision ?? null, currentModule: selected ? describe(selected) : null, nextAction, pendingInstructions,
     ...(c ? { researchId: c.researchId, objective: c.objective, objectiveRevision: c.objectiveRevision, modules: c.modules.map(describe),
-      versions: c.modules.filter(m => !m.followup).map(m => { const version = c.modules.find(v => v.id === m.currentVersionId) ?? m; return {moduleId:m.id, versionId:version.id, evidence:version.evidence, needsReview:m.needsReview ?? []}; }),
+      versions: c.modules.filter(m => !m.followup).map(m => { const version = c.modules.find(v => v.id === m.currentVersionId) ?? m; return {moduleId:m.id, versionId:version.id, versionNumber:version.versionNumber ?? (version.followup?.kind==='revision' ? c.modules.filter(v=>v.followup?.targetModuleId===m.id && v.followup.kind==='revision').findIndex(v=>v.id===version.id)+2 : 1), evidence:version.evidence, needsReview:m.needsReview ?? []}; }),
       control: { state: c.control.state, reason: c.control.reason, continuations: c.control.continuations, startedAt: c.control.startedAt, ...(c.control.wait ? { wait: c.control.wait } : {}), ...(c.control.wakeAt !== undefined ? { wakeAt: c.control.wakeAt } : {}) } } : {}) };
 }
 export function requireCurrentModule(c: Checklist, id: string): ResearchModule {

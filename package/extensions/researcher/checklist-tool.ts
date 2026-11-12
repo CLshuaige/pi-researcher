@@ -20,7 +20,7 @@ const ChecklistActionParameters = Type.Object({
   expectedRevision: Type.Optional(Type.Integer({ minimum: 1, description: 'Use the revision from the latest tool result or checkpoint. On conflict read again; never guess.' })),
   reason: Type.Optional(Type.String({ minLength: 1, description: 'Why this mutation is necessary; required except help/read/init/repair.' })),
   objective: Type.Optional(Type.String({ minLength: 1 })),
-  modules: Type.Optional(Type.Array(Definition, { minItems: 1, description: 'plan only: ordered complete list of module definitions. Preserve existing IDs.' })),
+  modules: Type.Optional(Type.Array(Definition, { minItems: 1, description: 'REQUIRED for action=plan: nonempty modules array with id, objective, skills, criteria and dependencies per module. reason/title do not define modules. Preserve existing IDs.' })),
   moduleId: Type.Optional(Type.String({ description: 'followup: original target module ID. start/update/accept: returned currentModule.id.' })),
   status: Type.Optional(Type.Union(ModuleSchema.properties.status.anyOf, { description: 'update only. Do not copy current status into accept: accept always completes after validation and ignores redundant status.' })),
   evidence: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'REQUIRED for accept: actual verified workspace file paths or source URLs. Submit explicitly together with acceptance; reason is not evidence.' })),
@@ -33,17 +33,9 @@ const ChecklistActionParameters = Type.Object({
   response: Type.Optional(Type.String({minLength:1,description:'resolve only: actual answer for a conversational question, not a claim that unverified files were written.'})),
   instructionId: Type.Optional(Type.String({ minLength: 1, description: 'REQUIRED for resolve: copy an exact ID from the latest pendingInstructions. Never guess or omit it; reason records its resolution.' })),
 }, { additionalProperties: false });
-// Keep the flat catalog (and all existing action fields) for provider compatibility.
-// Model-issued acceptance must carry its verified evidence explicitly. Legacy
-// programmatic calls still reuse saved values through ChecklistActionParameters.
-export const ChecklistParameters = Type.Object(ChecklistActionParameters.properties, {
-  additionalProperties: false,
-  anyOf: [
-    { properties: { action: { enum: ['help', 'read', 'init', 'repair', 'plan', 'start', 'update', 'resolve', 'followup'] } } },
-    { properties: { action: { const: 'accept' }, evidence: { minItems: 1 }, acceptance: { minItems: 1 } },
-      required: ['action', 'moduleId', 'expectedRevision', 'reason', 'evidence', 'acceptance'] },
-  ],
-});
+// Keep the provider schema flat: Moonshot rejects object + root anyOf.
+// Conditional acceptance requirements are enforced by the controller before execution.
+export const ChecklistParameters = Type.Object(ChecklistActionParameters.properties, { additionalProperties: false });
 export type ChecklistArguments = Static<typeof ChecklistActionParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
 For each call, provide title when possible: a Chinese action phrase of at most 12 characters, e.g. "规划研究阶段" or "核验训练产物". title is optional display metadata; omit completion/failure claims. The program determines execution status and uses a fixed action label when title is absent. reason remains the mutation rationale/audit note or instruction resolution, never a title or acceptance explanation.
@@ -110,15 +102,19 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
       const category=target.skills[0]?.replace('research-','') || 'analysis';
       const outputDir=`${category}/revisions/${id}`;
       const baseline=store.snapshotEvidence(c,id);
-      c.modules.push({id,objective:p.objective,skills,criteria:p.criteria,dependencies:[target.id],status:'pending',evidence:[],acceptance:[],reason:p.reason!,taskIds:[],
+      target.versionNumber ??= 1;
+      const priorRevisions=c.modules.filter(m=>m.followup?.targetModuleId===target.id && m.followup.kind==='revision');
+      const versionNumber=p.kind==='revision' ? Math.max(target.versionNumber,...priorRevisions.map((m,i)=>m.versionNumber ?? i+2))+1 : undefined;
+      c.modules.push({id,versionNumber,objective:p.objective,skills,criteria:p.criteria,dependencies:[target.id],status:'pending',evidence:[],acceptance:[],reason:p.reason!,taskIds:[],
         followup:{kind:p.kind,instructionId:p.instructionId,targetModuleId:target.id,outputDir,baseVersionId:target.currentVersionId ?? target.id,baseRevision:c.revision,baseline,affectedModules:p.kind==='revision'?[...(p.affectedModules ?? affected)]:[],impact:p.impact ?? 'Supplementary analysis; previously accepted deliverables remain unchanged.'}});
       instruction.followupModuleId=id;instruction.requiresArtifact=true;
       c.control.state='running';c.control.reason='';
       return;
     }
     if (p.action === 'plan') {
+      const initialPlan = c.modules.length === 0;
       if(c.modules.some(m=>m.followup && !['completed','skipped'].includes(m.status))) throw new Error('Finish the current followup before replanning.');
-      if (!p.modules?.length) throw new Error('plan requires modules definitions.');
+      if (!p.modules?.length) throw new Error('plan requires modules: a nonempty array of definitions with id, objective, skills, criteria and dependencies. reason/title alone cannot create the plan.');
       if (store.files.activeWork().length) throw new Error('Wait for active tasks before replanning.');
       if (c.modules.some(m => !p.modules!.some(n => n.id === m.id))) throw new Error('Preserve existing IDs; skip obsolete modules with reason.');
       let reopen = false;
@@ -134,6 +130,8 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
         return { evidence: [], acceptance: [], reason: '', taskIds: [], ...old, ...definition,
           status: reopen ? 'pending' : old!.status, acceptedRevision: reopen ? undefined : old!.acceptedRevision };
       });
+      if (initialPlan) for (const instruction of c.control.instructions)
+        if (!instruction.resolution && !instruction.followupModuleId) instruction.planned = true;
       return;
     }
     const id = p.moduleId;
@@ -186,10 +184,19 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
   let currentRevision: number | undefined; let currentModuleId: string | undefined; let nextAction = 'read';
   let acceptanceRequirements: object | undefined;
   let resolveRequirements: object | undefined;
+  let planningRequirements: object | undefined;
   try {
     const c = store.read(); currentRevision = c?.revision;
     const m = c && currentModule(c); currentModuleId = m?.id;
     if (!c) nextAction = 'init';
+    if (attempted?.action === 'plan' && c) {
+      planningRequirements = {
+        requiredFields: ['action', 'expectedRevision', 'reason', 'modules'],
+        missingFields: !Array.isArray(attempted.modules) || !attempted.modules.length ? ['modules'] : [],
+        moduleRequiredFields: ['id', 'objective', 'skills', 'criteria'],
+        instruction: 'Create the actual ordered modules array from the research request. Every module needs its own id, objective, skills array and nonempty criteria array; dependencies is optional. Include this array in action=plan with the latest revision and reason. A narrative reason/title is not a plan. Do not repeat the call without modules.',
+      };
+    }
     if (attempted?.action === 'resolve' && c) {
       const pendingInstructions = c.control.instructions.filter(i => !i.resolution);
       resolveRequirements = {
@@ -230,5 +237,5 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       };
     }
   } catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
 }

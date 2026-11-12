@@ -49,10 +49,14 @@ function HistoryItem({
           <Circle size={7} fill="currentColor" />
         ) : (
           <time>
-            {new Date(session.updatedAt).toLocaleTimeString('zh-CN', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {(() => {
+              const date = new Date(session.updatedAt);
+              const now = new Date();
+              const isWithin24Hours = now.getTime() - date.getTime() < 24 * 60 * 60 * 1000;
+              return isWithin24Hours
+                ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+            })()}
           </time>
         )}
       </button>
