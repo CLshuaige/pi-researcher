@@ -10,6 +10,7 @@ export function isResearchWaiting(session: Pick<ResearchSession, 'workflow' | 's
   );
 }
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type SubSessionStatus = StepStatus | 'partial';
 /** Thinking levels supported by Pi SDK */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export interface Attachment {
@@ -118,7 +119,7 @@ export interface SubSession {
   kind: 'delegate' | 'subagent' | 'council';
   label: string;
   skill?: string;
-  status: StepStatus;
+  status: SubSessionStatus;
   objective?: string;
   messages: ChatMessage[];
   startedAt: number;
@@ -134,6 +135,16 @@ export interface SubSession {
   outcome?: string;
   artifacts?: string[];
   sessionFile?: string;
+  requestedTasks?: { index: number; key?: string; agent?: string; objective?: string }[];
+  workflowChildren?: {
+    id: string;
+    runId?: string;
+    status: SubSessionStatus;
+    error?: string;
+    summary?: string;
+    artifacts: string[];
+  }[];
+  workflowIncomplete?: boolean;
 }
 export interface ResearchSession {
   /** Drafts are excluded from history until the first user message is persisted. */

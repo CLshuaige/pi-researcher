@@ -5,6 +5,7 @@ import type { StoredSession } from './store.ts';
 import { researchAgentRole } from '../shared/research.ts';
 import { thinkingText } from './thinking.ts';
 import { flattenFiles } from './files.ts';
+import { parseWorkflowResults } from '../../package/extensions/shared/subagent-results.ts';
 
 function object(value: unknown): Record<string, any> {
   return value && typeof value === 'object' ? (value as Record<string, any>) : {};
@@ -95,14 +96,20 @@ export function beginSubSessions(
   // Discovery/control calls do not launch child sessions.
   if (name === 'subagent' && args.action && !['resume', 'start'].includes(String(args.action)))
     return;
-  const tasks = Array.isArray(args.tasks)
+  const nestedArgs = object(args.args);
+  const nestedTasks = Array.isArray(nestedArgs.tasks) ? nestedArgs.tasks : undefined;
+  const tasks = nestedTasks
+    ? [args]
+    : Array.isArray(args.tasks)
     ? args.tasks
     : Array.isArray(args.chain)
       ? args.chain
       : [args];
   for (const [index, raw] of tasks.entries()) {
-    const task = object(raw),
-      objective = String(task.objective || task.task || task.label || '研究子任务'),
+    const task = nestedTasks ? nestedArgs : object(raw),
+      objective = nestedTasks
+        ? `并行子任务（${nestedTasks.length} 项）`
+        : String(task.objective || task.task || task.label || '研究子任务'),
       skill = Array.isArray(task.skills) ? task.skills.join('、') : task.agent;
     session.subSessions.push({
       id: tasks.length === 1 ? callId : `${callId}-${index}`,
@@ -114,6 +121,18 @@ export function beginSubSessions(
       status: index && Array.isArray(args.chain) ? 'pending' : 'running',
       messages: [],
       artifacts: [],
+      ...(nestedTasks ? { requestedTasks: nestedTasks.map((item: unknown, taskIndex: number) => {
+        const requested = object(item);
+        const key = requested.key || requested.id || requested.taskKey || requested.workflowKey;
+        return {
+          index: taskIndex,
+          ...(typeof key === 'string' ? { key } : {}),
+          ...(typeof requested.agent === 'string' ? { agent: requested.agent } : {}),
+          ...(typeof (requested.objective || requested.task || requested.label) === 'string'
+            ? { objective: requested.objective || requested.task || requested.label }
+            : {}),
+        };
+      }) } : {}),
       startedAt: Date.now(),
     });
   }
@@ -232,8 +251,50 @@ export async function refreshSubSessions(session: StoredSession, workspace: stri
         if (basename(directory) !== child.asyncRunId) throw new Error('Async run directory mismatch');
         const record = JSON.parse(await readFile(await internalPath(directory, 'status.json'), 'utf8'));
         if (record.runId !== child.asyncRunId) throw new Error('Async run identity mismatch');
-        child.status = childStatus(record.state);
-        child.outcome = record.timedOut ? 'timed_out' : record.state;
+        let workflowResult: unknown;
+        if (record.mode === 'workflow' || record.workflowChildren || child.requestedTasks?.length) try {
+          const resultPath = await internalPath(directory, 'workflow-result.json');
+          const parsed = JSON.parse(await readFile(resultPath, 'utf8'));
+          if (parsed.runId !== child.asyncRunId) throw new Error('Workflow result identity mismatch');
+          workflowResult = parsed;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            child.status = 'partial';
+            child.outcome = 'partial';
+            child.workflowChildren = [];
+            child.workflowIncomplete = true;
+            child.summary = `无法读取工作流结果：${String(error)}`;
+            child.endedAt = Date.now();
+            continue;
+          }
+        }
+        const visiblePaths = new Set(files.map((file) => file.path));
+        const artifactExists = (path: string) => {
+          const relativePath = relative(resolve(workspace), resolve(workspace, path)).split(sep).join('/');
+          return !isAbsolute(relativePath) && relativePath !== '..' && !relativePath.startsWith('../') && visiblePaths.has(relativePath);
+        };
+        const parsedCompletion = parseWorkflowResults(workflowResult, child.requestedTasks, artifactExists);
+        const parsedStatus = parseWorkflowResults(record, child.requestedTasks, artifactExists);
+        const workflowResults = parsedCompletion && (
+          parsedCompletion.children.length || parsedCompletion.status === 'failed' || parsedCompletion.error
+        ) ? parsedCompletion : parsedStatus || parsedCompletion;
+        const missingWorkflowResults = Boolean(child.requestedTasks?.length && !workflowResults && record.state !== 'running');
+        child.status = workflowResults?.status || (missingWorkflowResults ? 'partial' : childStatus(record.state));
+        child.outcome = workflowResults?.status || (missingWorkflowResults ? 'partial' : record.timedOut ? 'timed_out' : record.state);
+        if (workflowResults) {
+          child.workflowChildren = workflowResults.children;
+          const relativeArtifacts = workflowResults.children.flatMap((result) => result.artifacts.map((path) =>
+            relative(resolve(workspace), resolve(workspace, path)).split(sep).join('/'),
+          ));
+          child.artifacts = [...new Set([...(child.artifacts || []), ...relativeArtifacts])];
+          child.workflowIncomplete = workflowResults.incomplete;
+          const errors = workflowResults.children.flatMap((result) => result.error ? [`${result.id}: ${result.error}`] : []);
+          if (errors.length) child.summary = errors.join('\n').slice(0, 2400);
+          else if (workflowResults.error) child.summary = workflowResults.error.slice(0, 1200);
+        } else if (missingWorkflowResults) {
+          child.workflowChildren = [];
+          child.workflowIncomplete = true;
+        }
         const activeStep = record.steps?.find((step: { status?: string }) => step.status === 'running') || record.steps?.at(-1);
         child.skill ||= activeStep?.agent;
         child.lastActivityAt = Number(record.lastActivityAt || activeStep?.lastActivityAt) || undefined;

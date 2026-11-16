@@ -1,9 +1,9 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { relative, sep } from 'node:path';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
-import { ChecklistStore, ModuleSchema, currentModule, requireCurrentModule, type ResearchModule } from './checklist.ts';
+import { ChecklistStore, ModuleSchema, checklistState, currentModule, requireCurrentModule, type Checklist, type ResearchModule } from './checklist.ts';
 
 // Planning needs definitions, not execution bookkeeping. Defaults are supplied by the runtime.
 const Definition = Type.Object({
@@ -188,6 +188,13 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
   try {
     const c = store.read(); currentRevision = c?.revision;
     const m = c && currentModule(c); currentModuleId = m?.id;
+    if (c && isSatisfiedStartRecovery(store, c, error, attempted)) {
+      return { error: String(error), recovery: {
+        required: false, resolution: 'already_satisfied', currentRevision, currentModuleId,
+        nextAction: checklistState(c, store.readInbox()).nextAction,
+        instruction: 'This start is already satisfied. Continue from the latest checklist state; do not repeat it.',
+      } };
+    }
     if (!c) nextAction = 'init';
     if (attempted?.action === 'plan' && c) {
       planningRequirements = {
@@ -237,5 +244,32 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       };
     }
   } catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  return { error: String(error), recovery: { required: true, nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+}
+
+function isSatisfiedStartRecovery(store: ChecklistStore, current: Checklist, error: unknown, attempted?: ChecklistArguments): boolean {
+  if (attempted?.action !== 'start' || attempted.expectedRevision === undefined || !attempted.moduleId) return false;
+  const allowed = new Set(['action', 'expectedRevision', 'reason', 'moduleId', 'title']);
+  if (Object.entries(attempted).some(([key, value]) => value !== undefined && !allowed.has(key))) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  const casMessage = message.startsWith('Error: ') ? message.slice('Error: '.length) : message;
+  if (!casMessage.startsWith(`Revision conflict: expected ${attempted.expectedRevision}, actual `)) return false;
+
+  const snapshotPath = store.path(`.research/checklist/revision-${attempted.expectedRevision}.json`);
+  if (!existsSync(snapshotPath)) return false;
+  const expected = JSON.parse(readFileSync(snapshotPath, 'utf8')) as Checklist;
+  store.validate(expected);
+  if (expected.revision !== attempted.expectedRevision || expected.researchId !== current.researchId ||
+      expected.objective !== current.objective || expected.objectiveRevision !== current.objectiveRevision) return false;
+  if (!['running', 'waiting'].includes(current.control.state)) return false;
+
+  const expectedModule = currentModule(expected);
+  const currentModuleNow = currentModule(current);
+  if (!expectedModule || expectedModule.id !== attempted.moduleId || !['pending', 'running'].includes(expectedModule.status) ||
+      !currentModuleNow || currentModuleNow.id !== attempted.moduleId || currentModuleNow.status !== 'running') return false;
+  const definition = (module: ResearchModule) => JSON.stringify({ id: module.id, objective: module.objective,
+    skills: module.skills, criteria: module.criteria, dependencies: module.dependencies ?? [],
+    versionNumber: module.versionNumber, currentVersionId: module.currentVersionId, followup: module.followup,
+    needsReview: module.needsReview });
+  return definition(expectedModule) === definition(currentModuleNow);
 }

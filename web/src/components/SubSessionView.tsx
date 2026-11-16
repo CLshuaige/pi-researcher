@@ -22,7 +22,7 @@ function toolDetail(message: ChatMessage) {
   return String(value).replace(/^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*&&\s*/, '').replace(/\s+/g, ' ').slice(0, 180);
 }
 const outcomes: Record<string, string> = {
-  partial: '待补充',
+  partial: '部分完成',
   not_started: '未执行',
   blocked: '已阻塞',
   timed_out: '已超时',
@@ -43,6 +43,7 @@ const stages = {
   failed: '需要关注',
   cancelled: '已停止',
   pending: '等待中',
+  partial: '部分完成',
 };
 export function SubSessionView({
   subSession: sub,

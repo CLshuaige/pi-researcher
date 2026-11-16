@@ -3,13 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { Value } from 'typebox/value';
 import { JobParameters, jobGuide } from './job-tool.ts';
 import { ToolRepetitionGuard, reportHandoff, scopeBash, followupBoundary } from "./boundaries.ts";
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { ChecklistParameters, applyChecklistAction, checklistGuide, checklistRecovery, type ChecklistArguments } from './checklist-tool.ts';
 import { moduleResources } from './modules.ts';
 import type { ExtensionAPI, ExtensionContext, ToolResultEvent } from '@earendil-works/pi-coding-agent';
 import { ChecklistStore, checklistState, currentModule, requireCurrentModule } from './checklist.ts';
-import { acquireOwnerLock, atomicWrite } from './store.ts';
+import { acquireOwnerLock, atomicWrite, workspacePath } from './store.ts';
 import type { ResearchRunner } from './runner.ts';
+import { normalizeRoleDelegation } from './delegation.ts';
+import { parseWorkflowResults, type WorkflowResults } from '../shared/subagent-results.ts';
 
 export const managerPrompt = `New input does not always require another full scientific workflow. With no planned modules, a conversational question may finish through resolve(response); a real research request still requires planning and execution. Read-only questions can be answered from project materials and resolved with response; no stage execution is needed. Requests to save analysis or modify completed work require research_checklist(action: followup), bound to the actual instructionId and target moduleId. Use kind=analysis for supplementary findings without changing the accepted method; use kind=revision when updating the formal method/report or another accepted stage. Read the returned new module ID and followup.outputDir, then start it. Work only on the user's requested scope, reuse prior evidence, do not redo a whole Skill workflow unnecessarily, and never rerun downstream experiments/reports without authorization. New artifacts stay in outputDir; prior accepted artifacts are read-only. Before using a stage's outputs, consult versions/currentVersionId rather than assuming its old fixed path is current. Followup acceptance verifies delivery and automatically resolves its bound instruction. Never resolve an artifact request merely in prose, or claim a blocked write succeeded. needsReview records downstream applicability concerns, not authorization to execute them.
 
@@ -44,7 +46,8 @@ export class ResearchController {
   private delegationQueries = 0;
   private discoveredSpecialists = new Set<string>();
   private asyncDelegations = new Set<string>();
-  private terminalSubagents = new Map<string, { state: string; error?: string }>();
+  private roleRequests = new Map<string, unknown[]>();
+  private terminalSubagents = new Map<string, { state: string; error?: string; workflow?: WorkflowResults }>();
   private statusQueries = new Map<string, number>();
   private delegationFailurePause?: string;
   private closing = false;
@@ -125,7 +128,7 @@ export class ResearchController {
       this.release = release; this.enabled = true; this.closing = false;
       this.ui = ctx.ui; this.context = ctx; this.generation++;
       // Restore outstanding native runs when reopening a persisted main session.
-      this.asyncDelegations.clear(); this.terminalSubagents.clear(); this.statusQueries.clear();
+      this.asyncDelegations.clear(); this.roleRequests.clear(); this.terminalSubagents.clear(); this.statusQueries.clear();
       for (const entry of ctx.sessionManager?.getBranch() ?? []) {
         if (entry.type === 'message' && entry.message.role === 'toolResult' && entry.message.toolName === 'subagent') {
           const details = entry.message.details as { asyncId?: string; asyncDir?: string } | undefined;
@@ -134,7 +137,12 @@ export class ResearchController {
             if (details.asyncDir) try {
               const status = JSON.parse(readFileSync(join(details.asyncDir, 'status.json'), 'utf8'));
               terminal = status.runId === details.asyncId && ['complete', 'failed', 'partial', 'paused', 'stopped', 'cancelled'].includes(status.state);
-              if (terminal) this.terminalSubagents.set(details.asyncId, { state: status.state, error: status.error });
+              if (terminal) {
+                const resultPath = status.mode === 'workflow' || status.workflowChildren ? join(details.asyncDir, 'workflow-result.json') : undefined;
+                const result = resultPath && existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, 'utf8')) : status;
+                const workflow = parseWorkflowResults(result.runId === details.asyncId ? result : status, [], path => this.artifactExists(path));
+                this.terminalSubagents.set(details.asyncId, { state: workflow?.status || status.state, error: status.error, ...(workflow ? { workflow } : {}) });
+              }
             } catch { /* The plugin remains responsible for unavailable run records. */ }
             if (!terminal) this.asyncDelegations.add(details.asyncId);
           }
@@ -310,7 +318,11 @@ export class ResearchController {
     try { moduleSettings = this.moduleSettings(); }
     catch (error) { moduleSettings = { error: String(error), instruction: 'Repair module settings before execution; do not use a stale snapshot.' }; }
     const recentSavedFiles = this.recentSavedFiles.filter(file => file.moduleId === state.currentModule?.id && existsSync(file.path)).map(file => file.path);
-    const recovery = this.checklistRecoveryState && checklistRecovery(this.store!, this.checklistRecoveryState.error, this.checklistFailedArguments);
+    let recovery = this.checklistRecoveryState && checklistRecovery(this.store!, this.checklistRecoveryState.error, this.checklistFailedArguments);
+    if (recovery?.recovery.required === false) {
+      this.clearStartRecovery(this.checklistFailedArguments!);
+      recovery = undefined;
+    }
     if (recovery) state.nextAction = 'Correct the failed Checklist call using checklistRecovery; read/help do not resolve it.';
     return JSON.stringify({ ...(this.discoveredSpecialists.size ? { availableSpecialists: [...this.discoveredSpecialists], delegationInstruction: 'These canonical specialist agents were already discovered successfully. Do not list them again. Check prior handoffs before launching work; delegate only the remaining task for the current module with its project root and acceptance criteria.' } : {}), ...(recentSavedFiles.length ? { recentSavedFiles, artifactInstruction: 'These files were already saved successfully for the current module. Read and verify them against criteria, then accept when satisfied; do not recreate completed deliverables merely because the module is still running.' } : {}), ...(recovery ? { checklistRecovery: { ...recovery.recovery, repeatedAttempts: this.checklistFailure?.count } } : {}), ...(this.terminalSubagents.size ? { priorSubagents: Object.fromEntries(this.terminalSubagents), recoveryInstruction: "These runs have already ended. Do not redelegate unchanged completed work. Read and verify delivered evidence against each criterion, then accept when satisfied. Resume a failed/partial specialist run only for bounded remaining work. Do not wait for ended runs or repeat status queries." } : {}), ...(this.asyncDelegations.size ? { activeSubagents: [...this.asyncDelegations], instruction: "Child agents are running. End this turn and wait for the native completion notification; do not poll or relaunch." } : {}), moduleSettings, root: this.store?.files.root, ...state, ...(this.requestEvents.length ? { events: this.store?.files.events().filter(e => this.requestEvents.includes(e.id)) } : {}), skillInstructions, ...(skillErrors.length ? { skillErrors } : {}) });
   }
@@ -322,7 +334,7 @@ export class ResearchController {
       if (c && !this.pending.length && this.store!.complete(c)) return { state: 'completed' as const, reason: 'All modules accepted' };
       if (c && this.answerRevision === c.revision && !this.pending.length && !c.control.instructions.some(i => !i.resolution) && !this.asyncDelegations.size && !this.store!.files.activeWork().length) return { state: 'paused' as const, reason: 'Read-only answer finished; remaining research preserved' };
       const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution && !i.followupModuleId && !i.planned);
-      if (!unresolved && !this.pendingEvents().length && (this.asyncDelegations.size || this.waitRequested || this.store!.files.jobs().some(j => j.status === 'running'))) {
+      if (this.asyncDelegations.size || (!unresolved && !this.pendingEvents().length && (this.waitRequested || this.store!.files.jobs().some(j => j.status === 'running')))) {
         return { state: 'waiting' as const, reason: 'Waiting for child agents, managed jobs or scheduled check' };
       }
       const fingerprint = c ? this.store!.fingerprint(c) : 'missing';
@@ -352,6 +364,10 @@ export class ResearchController {
     // Keep validation diagnostics, without echoing a potentially huge bad call.
     const summary = String(error).split('\n\nReceived arguments:')[0];
     const details = checklistRecovery(this.store!, summary, p);
+    if (details.recovery.required === false) {
+      this.clearStartRecovery(p);
+      return details;
+    }
     const { reason: _reason, title: _title, ...argumentsWithoutReason } = p;
     // SDK validation errors include the original arguments, including display text.
     // Compare semantic arguments so changing a title/reason cannot hide the loop.
@@ -363,6 +379,18 @@ export class ResearchController {
     Object.assign(details.recovery, { repeatedAttempts: count, pauseAfterTurn: Boolean(this.checklistFailurePause) });
     this.checklistRecoveryState = details; this.checklistFailedArguments = p;
     return details;
+  }
+  private clearStartRecovery(p: ChecklistArguments) {
+    const failed = this.checklistFailedArguments;
+    if (failed?.action !== 'start' || p.action !== 'start' || failed.moduleId !== p.moduleId || failed.expectedRevision !== p.expectedRevision) return;
+    this.checklistFailure = undefined;
+    this.checklistFailurePause = undefined;
+    this.checklistRecoveryState = undefined;
+    this.checklistFailedArguments = undefined;
+  }
+  private artifactExists(path: string) {
+    try { return !!this.store && statSync(workspacePath(this.store.files.root, path)).isFile(); }
+    catch { return false; }
   }
   bind() {
     const pi = this.pi;
@@ -386,8 +414,10 @@ export class ResearchController {
       const event = data as { runId?: string; id?: string; state?: string; error?: string };
       const id = event.runId || event.id || '';
       const owned = this.asyncDelegations.delete(id);
-      if (owned && event.state && ['complete', 'completed', 'failed', 'partial', 'paused', 'stopped', 'cancelled'].includes(event.state)) {
-        this.terminalSubagents.set(id, { state: event.state, ...(typeof event.error === 'string' ? { error: event.error } : {}) });
+      const workflow = owned ? parseWorkflowResults(data, this.roleRequests.get(id), path => this.artifactExists(path)) : undefined;
+      this.roleRequests.delete(id);
+      if (owned && (workflow || event.state && ['complete', 'completed', 'failed', 'partial', 'paused', 'stopped', 'cancelled'].includes(event.state))) {
+        this.terminalSubagents.set(id, { state: workflow?.status || event.state!, ...(typeof event.error === 'string' ? { error: event.error } : {}), ...(workflow ? { workflow } : {}) });
         if (this.terminalSubagents.size > 12) this.terminalSubagents.delete(this.terminalSubagents.keys().next().value!);
       }
       if (owned && this.active && this.waiting && !this.asyncDelegations.size && !this.waitRequested && !this.store?.files.jobs().some(j => j.status === 'running')) this.leaveWaiting('Child agent result delivered');
@@ -405,7 +435,8 @@ export class ResearchController {
       } else if (message.role === 'toolResult' && message.toolName === 'research_checklist') {
         const attempted = this.checklistCalls.get(message.toolCallId);
         this.checklistCalls.delete(message.toolCallId);
-        if (!message.isError || !attempted || (message.details as { recovery?: { repeatedAttempts?: number } } | undefined)?.recovery?.repeatedAttempts) return;
+        const recovery = (message.details as { recovery?: { required?: boolean; repeatedAttempts?: number } } | undefined)?.recovery;
+        if (!message.isError || !attempted || recovery?.required === false || recovery?.repeatedAttempts) return;
         const error = message.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
         const details = this.checklistError(error, attempted);
         const text = JSON.stringify(details);
@@ -481,6 +512,8 @@ export class ResearchController {
           const boundary=followupBoundary(this.store.files.root,m,event.toolName,event.input);
           if(boundary)return {block:true,reason:boundary};
           requireCurrentModule(c, m.id);
+          if (event.toolName === 'subagent' && m.skills.some(skill => skill === 'research-hypothesis' || skill === 'research-method'))
+            normalizeRoleDelegation(this.store.files.root, m, event.input);
           if (event.toolName === 'subagent' && m.skills.some(skill => specialistNames.some(name => name === skill))) {
             const input = event.input as { agent?: string; task?: string; message?: string; cwd?: string; output?: unknown; workflow?: unknown; options?: Record<string, unknown>; action?: string };
             const specialist = specialistNames.find(name => m.skills.includes(name))!;
@@ -510,8 +543,11 @@ export class ResearchController {
         }
         const current=c && currentModule(c);
         if(current?.followup && event.toolName==='subagent' && !(event.input as {action?:string}).action) {
-          const request=event.input as {task?:string;cwd?:string};
-          request.task=`${request.task || ''}\n项目材料根目录：${this.store.files.root}。本次修订所有新文件只写入 ${this.store.path(current.followup.outputDir)} 及其子目录，覆盖旧的默认输出位置；旧成果只读。${JSON.stringify(checklistState(c!).versions)}`;
+          const request=event.input as {task?:string;cwd?:string;args?:{tasks?:{task?:string}[]}};
+          const context=`\n项目材料根目录：${this.store.files.root}。本次修订所有新文件只写入 ${this.store.path(current.followup.outputDir)} 及其子目录，覆盖旧的默认输出位置；旧成果只读。${JSON.stringify(checklistState(c!).versions)}`;
+          if (Array.isArray(request.args?.tasks)) {
+            for (const task of request.args.tasks) task.task=`${task.task || ''}${context}`;
+          } else request.task=`${request.task || ''}${context}`;
         }
         const input = event.input as { path?: string; outputDir?: string; command?: string };
         if (['write', 'edit'].includes(event.toolName)) {
@@ -545,7 +581,11 @@ export class ResearchController {
       if (repetition) return repetition;
       if (event.toolName !== 'subagent') return;
       const details = event.details as { asyncId?: string } | undefined;
-      if (!event.isError && details?.asyncId) this.asyncDelegations.add(details.asyncId);
+      const tasks = (event.input.args as { tasks?: unknown[] } | undefined)?.tasks;
+      if (!event.isError && details?.asyncId && !this.terminalSubagents.has(details.asyncId)) {
+        this.asyncDelegations.add(details.asyncId);
+        if (Array.isArray(tasks)) this.roleRequests.set(details.asyncId, tasks);
+      }
       const c = this.store.read(), m = c && currentModule(c);
       const specialist = m && specialistNames.find(name => m.skills.includes(name));
       const nativeId=details?.asyncId;
