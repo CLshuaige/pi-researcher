@@ -31,16 +31,17 @@ export function followupBoundary(root: string, module: ResearchModule, tool: str
 export class ToolRepetitionGuard {
   private calls = new Map<string, { result: string; count: number }>();
   private progress = '';
+  constructor(private ignoreChecklist = false) {}
+  get epoch() { return this.progress; }
   reset() { this.calls.clear(); this.progress = ''; }
-  observe(root: string, event: ToolResultEvent, context: unknown = []) {
-    if (['research_checklist', 'research_job', 'subagent', 'bg_wait'].includes(event.toolName)) return;
+  private snapshot(root: string, context: unknown) {
     const files: [string, number, number][] = [];
     const scan = (directory: string, prefix = '') => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         if (entry.name.startsWith('.') || ['node_modules', '__pycache__', 'inputs'].includes(entry.name) || entry.isSymbolicLink()) continue;
         const path = join(directory, entry.name), relative = join(prefix, entry.name);
         if (entry.isDirectory()) scan(path, relative);
-        else if (entry.isFile()) {
+        else if (entry.isFile() && !(this.ignoreChecklist && relative === 'checklist.json')) {
           const info = statSync(path);
           files.push([relative, info.size, info.mtimeMs]);
         }
@@ -50,11 +51,25 @@ export class ToolRepetitionGuard {
     files.sort((a, b) => a[0].localeCompare(b[0]));
     const progress = digest(JSON.stringify([context, files]));
     if (progress !== this.progress) { this.calls.clear(); this.progress = progress; }
-    const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
+    return progress;
+  }
+  refresh(root: string, context: unknown = []) { return this.snapshot(root, context); }
+  private canonical(value: unknown) { return JSON.stringify(value, (_key, item) =>
       item && typeof item === 'object' && !Array.isArray(item)
-        ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
-    const key = digest(canonical([event.toolName, event.input]));
-    const result = digest(canonical([event.isError, event.content]));
+        ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item); }
+  preflight(root: string, toolName: string, input: unknown, context: unknown = []) {
+    if (['research_checklist', 'research_job', 'subagent', 'bg_wait'].includes(toolName)) return;
+    const progress = this.snapshot(root, context);
+    if (!progress) return;
+    const key = digest(this.canonical([toolName, input]));
+    const previous = this.calls.get(key);
+    if (previous && previous.count >= 3) return { key, count: previous.count, toolName, progress };
+  }
+  observe(root: string, event: ToolResultEvent, context: unknown = []) {
+    if (['research_checklist', 'research_job', 'subagent', 'bg_wait'].includes(event.toolName)) return;
+    if (!this.snapshot(root, context)) return;
+    const key = digest(this.canonical([event.toolName, event.input]));
+    const result = digest(this.canonical([event.isError, event.content]));
     const previous = this.calls.get(key);
     const count = previous?.result === result ? previous.count + 1 : 1;
     if (this.calls.size >= 32 && !this.calls.has(key)) this.calls.delete(this.calls.keys().next().value!);
@@ -64,7 +79,7 @@ export class ToolRepetitionGuard {
     const reason = blocked
       ? `重复工具调用无进展：${event.toolName} 已重复 ${count} 次。保留已有成果，以 partial / blocked 交接，从首次重复步骤调整策略后恢复。`
       : `重复执行检测：${event.toolName} 的相同输入已得到相同结果 ${count} 次，期间研究产物没有变化。不要再次执行这条查询；利用已有结果采取实际修复、改用不同策略，或记录具体阻塞。工具成功不代表研究取得进展。`;
-    return { blocked, reason, result: { content: [...event.content, { type: 'text' as const, text: reason }], ...(blocked ? { isError: true } : {}) } };
+    return { blocked, reason, key, progress: this.progress, result: { content: [...event.content, { type: 'text' as const, text: reason }], ...(blocked ? { isError: true } : {}) } };
   }
 }
 

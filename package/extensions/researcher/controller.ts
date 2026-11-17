@@ -38,10 +38,12 @@ export class ResearchController {
   private checklistRecoveryState?: ReturnType<typeof checklistRecovery>;
   private checklistFailedArguments?: ChecklistArguments;
   private checklistCalls = new Map<string, ChecklistArguments>();
-  private toolGuard = new ToolRepetitionGuard();
+  private toolGuard = new ToolRepetitionGuard(true);
   private recentSavedFiles: { moduleId: string; path: string }[] = [];
   private answerRevision?: number;
   private repetitionPause?: string;
+  private turnSeq = 0;
+  private repetitionCorrection?: { progress: string; blockedTurn: number; promptSent: boolean; reason: string };
   private delegationFailures = 0;
   private delegationQueries = 0;
   private discoveredSpecialists = new Set<string>();
@@ -71,6 +73,21 @@ export class ResearchController {
   private pi: ExtensionAPI;
   private runner: ResearchRunner;
   private readSkill: (path: string) => string;
+  private resetRepetition() {
+    this.toolGuard.reset(); this.repetitionCorrection = undefined; this.repetitionPause = undefined; this.stagnant = 0;
+  }
+  private clearCorrection() { this.repetitionCorrection = undefined; this.repetitionPause = undefined; }
+  private hasActiveWait() {
+    if (this.asyncDelegations.size || this.store?.files.jobs().some(job => job.status === 'running')) return true;
+    return this.waitRequested && !(this.store?.files.events().some(event => !event.delivered && (event.type === 'job' || event.waitId === this.waitId)) ?? false);
+  }
+  private repetitionReason(module: ReturnType<typeof currentModule>, count: number) {
+    const jobs = this.store?.files.jobs().filter(job => job.status === 'running').map(job => job.id) ?? [];
+    const activeRuns = [...this.asyncDelegations];
+    const priorRuns = [...this.terminalSubagents].map(([id, value]) => ({ id, state: value.state }));
+    const files = this.recentSavedFiles.filter(file => file.moduleId === module?.id && existsSync(file.path) && statSync(file.path).isFile()).map(file => file.path);
+    return `相同工具输入已连续得到相同结果 ${count} 次且没有进展。当前阶段：${module?.id ?? '未知'} ${module?.objective ?? ''}；验收标准：${JSON.stringify(module?.criteria ?? [])}；运行中的子代理：${JSON.stringify(activeRuns)}；运行中的托管任务：${JSON.stringify(jobs)}；已结束子代理：${JSON.stringify(priorRuns)}；本模块最近保存文件：${JSON.stringify(files)}（未跟踪的角色不推断）。请核对当前标准和已有证据，改变下一步策略或说明具体阻塞。`;
+  }
   constructor(pi: ExtensionAPI, runner: ResearchRunner, readSkill = (path: string) => readFileSync(path, 'utf8')) { this.pi = pi; this.runner = runner; this.readSkill = readSkill; this.runner.onJobChange((root) => {
     if (this.release && !this.closing && this.store?.files.root === root) this.refreshJobs();
   }); }
@@ -158,7 +175,7 @@ export class ResearchController {
       this.jobTimer = setInterval(() => this.refreshJobs(), 2000);
       this.resumeOnInput = false; this.checklistFailure = undefined; this.checklistFailurePause = undefined;
       this.checklistRecoveryState = undefined; this.checklistFailedArguments = undefined; this.checklistCalls.clear();
-      this.toolGuard.reset(); this.repetitionPause = undefined;
+      this.resetRepetition();
       this.delegationFailures = 0; this.delegationQueries = 0; this.delegationFailurePause = undefined;
       this.last = ''; this.stagnant = 0; this.continuations = 0;
     } catch (error) { if (!retained) { release(); this.release = undefined; } this.enabled = false; this.resumeOnInput = Boolean(retained); throw error; }
@@ -211,6 +228,7 @@ export class ResearchController {
   private leaveWaiting(reason: string) {
     clearTimeout(this.wakeTimer);
     this.waitRequested = false; this.wakeAt = undefined; this.waitId = undefined;
+    this.resetRepetition();
     if (this.waiting || this.store?.read()?.control.wait) {
       this.waiting = false;
       this.store?.change(reason, c => { c.control.state = 'running'; c.control.reason = ''; delete c.control.wakeAt; delete c.control.wait; });
@@ -224,6 +242,8 @@ export class ResearchController {
     try {
       const jobs = this.store.files.jobs();
       for (const job of jobs) {
+        const previousStatus = this.observedJobs.get(job.id);
+        if (previousStatus !== job.status && (previousStatus !== undefined || job.status === 'running')) this.resetRepetition();
         if (job.status !== 'running' && (!initial || job.researchId === this.store.read()?.researchId)) {
           const summary = `${job.id}: ${job.status}`;
           if (this.store.files.recordEvent({ id: `${job.id}:${job.status}`, type: 'job', time: Date.now(), researchId: job.researchId, objectiveRevision: job.objectiveRevision, jobId: job.id, summary })) {
@@ -292,6 +312,10 @@ export class ResearchController {
     return { interactionMode, literature: value.literature, hypothesis: value.hypothesis,
       method: value.method, experiment: value.experiment };
   }
+  private repetitionContext(checklist: NonNullable<ReturnType<ChecklistStore['read']>>) {
+    const module = currentModule(checklist);
+    return [checklist.objectiveRevision, module?.id, module?.status, module?.objective, module?.criteria, this.moduleSettings()];
+  }
   checkpoint(ctx?: ExtensionContext) {
     if (ctx) { this.ui = ctx.ui; this.context = ctx; }
     let state: ReturnType<typeof checklistState>;
@@ -326,17 +350,22 @@ export class ResearchController {
     if (recovery) state.nextAction = 'Correct the failed Checklist call using checklistRecovery; read/help do not resolve it.';
     return JSON.stringify({ ...(this.discoveredSpecialists.size ? { availableSpecialists: [...this.discoveredSpecialists], delegationInstruction: 'These canonical specialist agents were already discovered successfully. Do not list them again. Check prior handoffs before launching work; delegate only the remaining task for the current module with its project root and acceptance criteria.' } : {}), ...(recentSavedFiles.length ? { recentSavedFiles, artifactInstruction: 'These files were already saved successfully for the current module. Read and verify them against criteria, then accept when satisfied; do not recreate completed deliverables merely because the module is still running.' } : {}), ...(recovery ? { checklistRecovery: { ...recovery.recovery, repeatedAttempts: this.checklistFailure?.count } } : {}), ...(this.terminalSubagents.size ? { priorSubagents: Object.fromEntries(this.terminalSubagents), recoveryInstruction: "These runs have already ended. Do not redelegate unchanged completed work. Read and verify delivered evidence against each criterion, then accept when satisfied. Resume a failed/partial specialist run only for bounded remaining work. Do not wait for ended runs or repeat status queries." } : {}), ...(this.asyncDelegations.size ? { activeSubagents: [...this.asyncDelegations], instruction: "Child agents are running. End this turn and wait for the native completion notification; do not poll or relaunch." } : {}), moduleSettings, root: this.store?.files.root, ...state, ...(this.requestEvents.length ? { events: this.store?.files.events().filter(e => this.requestEvents.includes(e.id)) } : {}), skillInstructions, ...(skillErrors.length ? { skillErrors } : {}) });
   }
-  private settlement(outcome: string) {
+  private settlement(outcome: string, deferRepetition = false) {
     if (outcome !== 'completed') return { state: 'paused' as const, reason: 'Agent error or abort' };
     try {
       this.flush();
       const c = this.store!.read();
+      if (c) {
+        this.toolGuard.refresh(this.store!.files.root, this.repetitionContext(c));
+        if (this.repetitionCorrection && this.toolGuard.epoch !== this.repetitionCorrection.progress) this.clearCorrection();
+      }
+      if (this.asyncDelegations.size || this.store!.files.jobs().some(j => j.status === 'running') || (this.waitRequested && !this.pendingEvents().length)) {
+        return { state: 'waiting' as const, reason: 'Waiting for child agents, managed jobs or scheduled check' };
+      }
       if (c && !this.pending.length && this.store!.complete(c)) return { state: 'completed' as const, reason: 'All modules accepted' };
       if (c && this.answerRevision === c.revision && !this.pending.length && !c.control.instructions.some(i => !i.resolution) && !this.asyncDelegations.size && !this.store!.files.activeWork().length) return { state: 'paused' as const, reason: 'Read-only answer finished; remaining research preserved' };
       const unresolved = this.pending.length || c?.control.instructions.some(i => !i.resolution && !i.followupModuleId && !i.planned);
-      if (this.asyncDelegations.size || (!unresolved && !this.pendingEvents().length && (this.waitRequested || this.store!.files.jobs().some(j => j.status === 'running')))) {
-        return { state: 'waiting' as const, reason: 'Waiting for child agents, managed jobs or scheduled check' };
-      }
+      if (deferRepetition && this.repetitionCorrection) return { state: 'continue' as const, reason: 'Allow one repetition correction turn', checklist: c };
       const fingerprint = c ? this.store!.fingerprint(c) : 'missing';
       this.stagnant = fingerprint === this.last ? this.stagnant + 1 : 0;
       this.last = fingerprint;
@@ -354,9 +383,19 @@ export class ResearchController {
     if (!checklist) return;
     const module = currentModule(checklist);
     if (!module) return;
-    const observed = this.toolGuard.observe(this.store.files.root, event,
-      [checklist.objectiveRevision, module.id, module.status, this.moduleSettings()]);
-    if (observed?.blocked) this.repetitionPause = observed.reason;
+    const observed = this.toolGuard.observe(this.store.files.root, event, this.repetitionContext(checklist));
+    if (this.repetitionCorrection && this.toolGuard.epoch !== this.repetitionCorrection.progress) this.clearCorrection();
+    if (observed?.blocked) {
+      if (this.hasActiveWait()) {
+        return { ...observed.result, content: [...event.content, { type: 'text' as const, text: '当前有子代理或托管任务正在运行。保持已有等待，不要重复此调用或结束任务；本轮结束并等待任务完成通知。' }] };
+      }
+      if (observed.progress) {
+        const reason = this.repetitionReason(module, 4);
+        if (this.repetitionCorrection?.progress === observed.progress && this.turnSeq > this.repetitionCorrection.blockedTurn) this.repetitionPause = reason;
+        else if (!this.repetitionCorrection || this.repetitionCorrection.progress !== observed.progress) this.repetitionCorrection = { progress: observed.progress, blockedTurn: this.turnSeq, promptSent: false, reason };
+        return { ...observed.result, content: [...event.content, { type: 'text' as const, text: reason }] };
+      }
+    }
     return observed?.result;
   }
 
@@ -408,12 +447,15 @@ export class ResearchController {
     // The plugin owns result delivery and wakeup; the manager only tracks its work.
     pi.events?.on('subagent:async-started', data => {
       const event = data as { id?: string; sessionId?: string };
-      if (event.id && event.sessionId === this.context?.sessionManager.getSessionId()) this.asyncDelegations.add(event.id);
+      if (event.id && event.sessionId === this.context?.sessionManager.getSessionId() && !this.asyncDelegations.has(event.id)) {
+        this.resetRepetition(); this.asyncDelegations.add(event.id);
+      }
     });
     pi.events?.on('subagent:async-complete', data => {
       const event = data as { runId?: string; id?: string; state?: string; error?: string };
       const id = event.runId || event.id || '';
       const owned = this.asyncDelegations.delete(id);
+      if (owned) this.resetRepetition();
       const workflow = owned ? parseWorkflowResults(data, this.roleRequests.get(id), path => this.artifactExists(path)) : undefined;
       this.roleRequests.delete(id);
       if (owned && (workflow || event.state && ['complete', 'completed', 'failed', 'partial', 'paused', 'stopped', 'cancelled'].includes(event.state))) {
@@ -444,9 +486,11 @@ export class ResearchController {
       }
     });
     pi.on('agent_start', (_event, ctx) => { this.busy = true; this.context = ctx; });
+    pi.on('turn_start', () => { this.turnSeq++; });
     pi.on('turn_end', event => {
+      if (this.active && this.repetitionPause && this.hasActiveWait()) this.clearCorrection();
       if ((this.checklistFailurePause || this.delegationFailurePause || this.repetitionPause) && this.active) {
-        const reason = this.repetitionPause || this.delegationFailurePause || this.checklistFailurePause!;
+        const reason = this.checklistFailurePause || this.delegationFailurePause || this.repetitionPause!;
         this.repetitionPause = undefined;
         this.checklistFailurePause = undefined; this.delegationFailurePause = undefined;
         this.ui?.notify(reason, 'warning'); void this.pause(reason);
@@ -565,6 +609,19 @@ export class ResearchController {
           this.store.path(input.outputDir);
         }
         if (event.toolName === 'fetch_arxiv') throw new Error('Unadapted global cache tool disabled; use project-local download_pdf');
+        const latest = this.store.read();
+        const activeModule = latest && currentModule(latest);
+        const context = activeModule && this.repetitionContext(latest!);
+        const repeated = context && this.toolGuard.preflight(this.store.files.root, event.toolName, event.input, context);
+        if (this.repetitionCorrection && this.toolGuard.epoch !== this.repetitionCorrection.progress) this.clearCorrection();
+        if (repeated) {
+          const reason = this.repetitionReason(activeModule, repeated.count);
+          if (!this.hasActiveWait()) {
+            if (this.repetitionCorrection?.progress === repeated.progress && this.turnSeq > this.repetitionCorrection.blockedTurn) this.repetitionPause = reason;
+            else if (!this.repetitionCorrection || this.repetitionCorrection.progress !== repeated.progress) this.repetitionCorrection = { progress: repeated.progress, blockedTurn: this.turnSeq, promptSent: false, reason };
+          }
+          return { block: true, terminate: true, reason };
+        }
       } catch (e) { if (event.toolName !== 'research_checklist' && !['read', 'grep', 'find', 'ls'].includes(event.toolName)) return { block: true, reason: String(e) }; }
     });
     pi.on('tool_result', event => {
@@ -583,7 +640,7 @@ export class ResearchController {
       const details = event.details as { asyncId?: string } | undefined;
       const tasks = (event.input.args as { tasks?: unknown[] } | undefined)?.tasks;
       if (!event.isError && details?.asyncId && !this.terminalSubagents.has(details.asyncId)) {
-        this.asyncDelegations.add(details.asyncId);
+        if (!this.asyncDelegations.has(details.asyncId)) { this.resetRepetition(); this.asyncDelegations.add(details.asyncId); }
         if (Array.isArray(tasks)) this.roleRequests.set(details.asyncId, tasks);
       }
       const c = this.store.read(), m = c && currentModule(c);
@@ -628,11 +685,18 @@ export class ResearchController {
     });
     pi.on('agent_before_settle', async (event) => {
       if (!this.active || !this.store) return;
-      const decision = this.settlement(event.outcome);
+      const pendingCorrection = this.repetitionCorrection;
+      const correctionDue = Boolean(pendingCorrection && !pendingCorrection.promptSent && this.turnSeq === pendingCorrection.blockedTurn);
+      const decision = this.settlement(event.outcome, correctionDue);
       if (decision.state === 'waiting') {
         this.waiting = true; this.stagnant = 0;
         this.store.change(decision.reason, c => { c.control.state = 'waiting'; c.control.reason = decision.reason; c.control.wakeAt = this.wakeAt; if (c.control.wait) c.control.wait.state = 'waiting'; });
         return;
+      }
+      if (correctionDue && pendingCorrection && this.repetitionCorrection === pendingCorrection && decision.state === 'continue') {
+        pendingCorrection.promptSent = true;
+        this.continuations++;
+        return { entries: [...event.entries, { type: 'custom_message' as const, customType: 'research-repetition-correction', content: pendingCorrection.reason, display: false }], continue: true };
       }
       if (decision.state !== 'continue') { await this.pause(decision.reason, decision.state, false); return; }
       this.continuations++;
@@ -669,7 +733,7 @@ export class ResearchController {
           } else {
             const c = this.store.read();
             if (!c) throw new Error('Initialize checklist before waiting');
-            const unresolved = this.state().pendingInstructions.filter(i=>!('followupModuleId' in i && i.followupModuleId));
+            const unresolved = this.state().pendingInstructions.filter(i=>!('followupModuleId' in i && i.followupModuleId) && !('planned' in i && i.planned));
             if (unresolved.length) throw new Error(`Resolve pending instructions before waiting: ${JSON.stringify(unresolved)}`);
             if (p.wakeAfterSeconds === undefined && !this.store.files.jobs().some(j => j.status === 'running')) throw new Error('wait needs a running job or wakeAfterSeconds');
             this.waitRequested = true; this.waitId = randomUUID();
