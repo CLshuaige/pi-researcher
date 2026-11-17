@@ -185,6 +185,7 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
   let acceptanceRequirements: object | undefined;
   let resolveRequirements: object | undefined;
   let planningRequirements: object | undefined;
+  let initialPlanRecovery = false;
   try {
     const c = store.read(); currentRevision = c?.revision;
     const m = c && currentModule(c); currentModuleId = m?.id;
@@ -196,8 +197,25 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       } };
     }
     if (!c) nextAction = 'init';
-    if (attempted?.action === 'plan' && c) {
+    const errorMessage = (error instanceof Error ? error.message : String(error)).replace(/^Error: /, '');
+    if (c && attempted?.action === 'plan' && c.modules.length === 0 &&
+      (!attempted.modules || attempted.modules.length === 0) && errorMessage.startsWith('plan requires modules:')) {
+      initialPlanRecovery = true;
+      nextAction = 'plan';
+      const retryTemplate = {
+        action: 'plan', expectedRevision: c.revision, reason: attempted.reason!,
+        modules: [{ id: 'M1', objective: '', skills: [], criteria: [], dependencies: [] }],
+      };
       planningRequirements = {
+        objective: c.objective,
+        requiredFields: ['action', 'expectedRevision', 'reason', 'modules'],
+        missingFields: ['modules'], moduleRequiredFields: ['id', 'objective', 'skills', 'criteria'],
+        retryTemplate, templateNeedsCompletion: true,
+        instruction: 'Use the actual research request to choose the number and order of modules, fill every module objective and nonempty criteria array, and choose appropriate skills and dependencies. Changing reason/title does not plan research. Empty objective or acceptance criteria cannot pass validation. Complete the template, then submit through research_checklist; recovery never submits it automatically.',
+      };
+    }
+    if (attempted?.action === 'plan' && c) {
+      planningRequirements ??= {
         requiredFields: ['action', 'expectedRevision', 'reason', 'modules'],
         missingFields: !Array.isArray(attempted.modules) || !attempted.modules.length ? ['modules'] : [],
         moduleRequiredFields: ['id', 'objective', 'skills', 'criteria'],
@@ -244,7 +262,7 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       };
     }
   } catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { required: true, nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  return { error: String(error), recovery: { required: true, nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: initialPlanRecovery ? 'Complete planningRequirements.retryTemplate using the research objective and submit it with action: plan. Do not change checklist JSON directly; recovery does not submit the plan for you.' : 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
 }
 
 function isSatisfiedStartRecovery(store: ChecklistStore, current: Checklist, error: unknown, attempted?: ChecklistArguments): boolean {

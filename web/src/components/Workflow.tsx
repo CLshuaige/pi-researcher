@@ -15,8 +15,6 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import {
-  ChevronLeft,
-  ChevronRight,
   Target,
   LibraryBig,
   Lightbulb,
@@ -43,11 +41,20 @@ import type {
 } from '../../shared/types';
 import { ResearchActivity } from './ResearchActivity';
 import { getStageStartMessages } from '../lib/research-navigation';
+import { RESEARCH_STAGE_LABELS } from '../../shared/research';
+import { Tooltip } from '@animate-ui/react/primitives/radix-ui/tooltip';
 
 type StageNode = Node<WorkflowNode & Record<string, unknown>, 'stage'>;
 const STAGE_GAP = 72;
 const RESOURCE_GAP = 28;
 const PRESENTATION_CONTENT_HEIGHT = 1280;
+const RESEARCH_STAGES = Object.entries(RESEARCH_STAGE_LABELS).map(([id, label]) => ({
+  id,
+  label,
+  Icon: [Target, LibraryBig, Lightbulb, Compass, FlaskConical, FileText, ScanSearch][
+    Object.keys(RESEARCH_STAGE_LABELS).indexOf(id)
+  ],
+}));
 const ROLE_ICONS = {
   task: Target,
   literature: LibraryBig,
@@ -57,6 +64,21 @@ const ROLE_ICONS = {
   report: FileText,
   review: ScanSearch,
 };
+function stageMatches(node: WorkflowNode, stageId: string, label: string) {
+  const id = node.id.toLowerCase();
+  if (id === stageId || id === stageId.replace(/^research-/, '')) return true;
+  if (node.label.toLowerCase().includes(label.toLowerCase())) return true;
+  const patterns: Record<string, RegExp> = {
+    'research-task': /任务|解析|\btask\b|\bscope\b/i,
+    'research-literature': /文献|检索|\bliterature\b|\bpapers\b/i,
+    'research-hypothesis': /假设|\bhypothes/i,
+    'research-method': /方法|设计|\bmethod\b/i,
+    'research-experiment': /实验|试验|\bexperiment\b/i,
+    'research-report': /报告|论文|写作|\breport\b/i,
+    'research-review': /评估|反馈|评审|审查|\breview\b|\bevaluation\b/i,
+  };
+  return patterns[stageId].test(node.label);
+}
 function Stage({ data }: NodeProps<StageNode>) {
   const navigate = data.onNavigate as (() => void) | undefined;
   const board = data.board as PresentationBoard | undefined;
@@ -293,6 +315,8 @@ function FlowCanvas({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const focused = useRef<string | undefined>(undefined);
   const [focusIndex, setFocusIndex] = useState(0);
+  const [selectedStage, setSelectedStage] = useState<string>();
+  const previousIndex = useRef(-1);
   const width = stageWidth ?? Math.max(250, size.width - 48);
   const [heights, setHeights] = useState<Record<string, number>>({});
   const reportHeight = useCallback((id: string, height: number) => {
@@ -314,21 +338,37 @@ function FlowCanvas({
     const stage = workflow.nodes[index];
     if (!stage || !instance) return;
     focused.current = stage.id;
+    previousIndex.current = index;
     setFocusIndex(index);
     void instance.setViewport(
       { x: 4 - index * (width + STAGE_GAP), y: 32, zoom: 1 },
       { duration: 180 },
     );
   };
+  const previousWidth = useRef(0);
+  const previousSession = useRef(sessionId);
   useEffect(() => {
-    if (!focused.current && instance && workflow.nodes.length && size.width > 0)
-      focus(
-        Math.max(
-          0,
-          workflow.nodes.findIndex((node) => node.status === 'running'),
-        ),
-      );
-  }, [instance, workflow.nodes, size.width]);
+    if (previousSession.current !== sessionId) {
+      previousSession.current = sessionId;
+      focused.current = undefined;
+      setSelectedStage(undefined);
+      previousIndex.current = -1;
+      previousWidth.current = 0;
+    }
+    if (!instance || !workflow.nodes.length || size.width <= 0) return;
+    const currentIndex = workflow.nodes.findIndex((node) => node.id === focused.current);
+    const runningIndex = workflow.nodes.findIndex((node) => node.status === 'running');
+    const availableIndex = workflow.nodes.findIndex((node) => node.status !== 'cancelled');
+    const targetIndex = currentIndex >= 0
+      ? currentIndex
+      : runningIndex >= 0 ? runningIndex : Math.max(0, availableIndex);
+    const changedStage = workflow.nodes[targetIndex]?.id !== focused.current;
+    const changedIndex = previousIndex.current !== targetIndex;
+    const changedWidth = previousWidth.current !== size.width;
+    previousWidth.current = size.width;
+    if (changedStage || changedIndex || changedWidth) focus(targetIndex);
+    else if (focusIndex !== targetIndex) setFocusIndex(targetIndex);
+  }, [instance, workflow.nodes, size.width, focusIndex, sessionId]);
   const nodes: FlowNode[] = useMemo(() => {
     const result: FlowNode[] = [];
     for (const [index, node] of workflow.nodes.entries()) {
@@ -458,29 +498,56 @@ function FlowCanvas({
     ];
   }, [workflow, nodes, running]);
   return (
-    <div className="flow-canvas" ref={element} data-testid="flow-canvas">
+    <div className="flow-canvas-shell">
+      <div className="presentation-stage-nav nodrag nopan" role="group" aria-label="研究阶段">
+        {RESEARCH_STAGES.map(({ id, label, Icon }) => {
+            const focusedNode = workflow.nodes[focusIndex];
+            const inferredFocusedStage = focusedNode && RESEARCH_STAGES.find((stage) =>
+              stageMatches(focusedNode, stage.id, stage.label),
+            )?.id;
+            const activeStage = selectedStage && focusedNode && RESEARCH_STAGES.some((stage) =>
+              stage.id === selectedStage && stageMatches(focusedNode, stage.id, stage.label),
+            ) ? selectedStage : inferredFocusedStage;
+            const matches = workflow.nodes
+              .map((node, index) => ({ node, index }))
+              .filter(({ node }) => stageMatches(node, id, label));
+            const activeMatches = matches.filter(({ node }) => node.status !== 'cancelled');
+            const selectedMatch = activeMatches.find(({ node }) => node.id === focused.current);
+            const target = selectedMatch || activeMatches.find(({ node }) => node.status === 'running') || activeMatches[0] || matches[0];
+            const unavailable = !target || target.node.status === 'cancelled';
+            return (
+              <Tooltip.Root key={id}>
+                <Tooltip.Trigger asChild>
+                  <span className="stage-nav-tooltip-trigger">
+                    <button
+                      className="stage-nav-button"
+                      aria-label={label}
+                      aria-pressed={!!target && target.node.id === focusedNode?.id && activeStage === id}
+                      disabled={unavailable}
+                      onClick={() => {
+                        if (!target) return;
+                        setSelectedStage(id);
+                        focus(target.index);
+                      }}
+                    >
+                      <Icon size={12} aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  </span>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content className="ui-tooltip stage-nav-tooltip" sideOffset={7}>
+                    {unavailable ? '不涉及' : label}
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            );
+        })}
+      </div>
+      <div className="flow-canvas" ref={element} data-testid="flow-canvas">
       {!nodes.length && (
         <div className="artifact-empty">
           <p>研究计划生成后，将在这里显示实际研究节点。</p>
-        </div>
-      )}
-      {!!workflow.nodes.length && (
-        <div className="presentation-stage-nav nodrag nopan">
-          <button
-            aria-label="上一个研究阶段"
-            disabled={focusIndex === 0}
-            onClick={() => focus(focusIndex - 1)}
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <span>{workflow.nodes[focusIndex]?.label}</span>
-          <button
-            aria-label="下一个研究阶段"
-            disabled={focusIndex >= workflow.nodes.length - 1}
-            onClick={() => focus(focusIndex + 1)}
-          >
-            <ChevronRight size={14} />
-          </button>
         </div>
       )}
       {/* Top-right status pill */}
@@ -509,6 +576,7 @@ function FlowCanvas({
       >
         <Background gap={18} size={0.7} color="#dfe5ee" />
       </ReactFlow>
+      </div>
     </div>
   );
 }
@@ -653,7 +721,7 @@ export function Workflow({
             <i className="legend-dot optional" />
             可选
           </span>
-          <span className="flow-pan-hint">左右拖动查看后续节点</span>
+          <span className="flow-pan-hint">点击上方阶段切换节点</span>
         </div>
         <ResearchActivity messages={messages} presentation={presentation} workflow={workflow} />
       </section>

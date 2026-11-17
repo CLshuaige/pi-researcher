@@ -5,6 +5,14 @@
   min-height: 300px;
   min-width: 0;
 }
+.flow-canvas-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  container-type: inline-size;
+}
 .flow-canvas {
   position: relative;
   overflow: hidden;
@@ -835,27 +843,67 @@
   }
 }
 .presentation-stage-nav {
-  position: absolute;
-  z-index: 6;
-  top: 5px;
-  left: 20px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px 8px;
   color: var(--muted);
   font-size: 11px;
 }
-.presentation-stage-nav button {
+.stage-nav-tooltip-trigger {
   display: grid;
-  place-items: center;
-  width: 24px;
-  height: 22px;
+  min-width: 0;
+}
+.presentation-stage-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px;
+  border: 1px solid var(--line);
   border-radius: 5px;
   background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.presentation-stage-nav .stage-nav-button {
+  width: 100%;
+}
+.stage-nav-tooltip-trigger > .stage-nav-button:disabled {
+  pointer-events: none;
+}
+.ui-tooltip.stage-nav-tooltip {
   border: 1px solid var(--line);
+  background: var(--panel, white);
+  color: var(--ink-2);
+  box-shadow: 0 2px 6px rgb(30 50 80 / 12%);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+.presentation-stage-nav button[aria-pressed='true'] {
+  border-color: var(--cobalt);
+  color: var(--cobalt);
+  background: var(--panel-soft);
 }
 .presentation-stage-nav button:disabled {
   opacity: 0.35;
+  cursor: default;
+}
+.presentation-stage-nav button:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 1px;
+}
+.presentation-stage-nav button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 559px) {
+  .presentation-stage-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .presentation-fallback {
