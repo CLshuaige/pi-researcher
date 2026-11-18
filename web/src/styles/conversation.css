@@ -517,6 +517,20 @@
   background: #f7faff;
   font-size: 13px;
 }
+/* A pending decision reuses the checklist dock frame instead of the message flow. */
+.question-panel.dock-question {
+  margin: 0;
+  border-left: 0;
+  background: var(--panel);
+}
+.dock-question-error {
+  margin: 8px 16px 0;
+  color: var(--red);
+  font-size: 12px;
+}
+.question-dock .checklist-dock-toggle > svg {
+  color: var(--cobalt);
+}
 .question-panel p {
   margin: 8px 0;
   color: var(--muted);
@@ -814,4 +828,53 @@
   font-size: 13px;
   line-height: 1.7;
   color: var(--ink-2);
+}
+
+.dock-question-options {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.dock-question-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.dock-question-options input[type='radio'] {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  accent-color: var(--cobalt);
+}
+.dock-question-options > input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.dock-question-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dock-question-actions button {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.dock-question-actions button[type='submit'] {
+  background: var(--cobalt);
+  border-color: var(--cobalt);
+  color: white;
+}
+.dock-question-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

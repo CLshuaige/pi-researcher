@@ -111,7 +111,8 @@ export class ChecklistStore {
     return this.commit(c, 'runtime', 'Restored committed snapshot; external content preserved');
   }
   initialize(objective: string) {
-    if (this.read()) throw new Error('Checklist already exists');
+    const existing = this.read();
+    if (existing) return existing;
     return this.commit({ schemaVersion: 1, researchId: randomUUID(), revision: 0, objective, objectiveRevision: 1, modules: [],
       control: { state: 'running', reason: '', continuations: 0, startedAt: Date.now(), instructions: [] }, audit: [] }, 'runtime', 'Initialize research');
   }

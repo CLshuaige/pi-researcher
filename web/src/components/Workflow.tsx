@@ -90,8 +90,10 @@ function Stage({ data }: NodeProps<StageNode>) {
   const selectedVersion = data.selectedVersion as string;
   const selectVersion = data.onSelectVersion as (version: string) => void;
   const busy = activity?.status === 'queued' || activity?.status === 'rendering';
-  const boardBusy = busy && (activity.versionId === selectedVersion ||
-    (!!data.followCurrent && activity.versionId === data.currentVersionId));
+  const boardBusy =
+    busy &&
+    (activity.versionId === selectedVersion ||
+      (!!data.followCurrent && activity.versionId === data.currentVersionId));
   const preview = data.onPreviewFile as (path: string, name: string) => void;
   const theme = presentationRole(data.label),
     Icon = ROLE_ICONS[theme.role];
@@ -373,7 +375,7 @@ function FlowCanvas({
     const result: FlowNode[] = [];
     for (const [index, node] of workflow.nodes.entries()) {
       const x = 20 + index * (width + STAGE_GAP);
-      const holder = presentation?.stages[node.id];
+      const holder = presentation?.enabled ? presentation.stages[node.id] : undefined;
       const requested = selectedVersions[node.id] || node.currentVersionId || node.id;
       let board: PresentationBoard | undefined =
         holder?.versions?.[requested] ||

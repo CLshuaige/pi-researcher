@@ -99,6 +99,8 @@ test('missing initial plan modules returns a fillable plan recovery without chan
     modules: [{ id: 'M1', objective: '', skills: [], criteria: [], dependencies: [] }],
   });
   assert.equal(recovery.planningRequirements.templateNeedsCompletion, true);
+  assert.ok(recovery.planningRequirements.allowedSkills.includes('research-literature'));
+  assert.ok(recovery.planningRequirements.allowedSkills.every((skill: string) => !skill.endsWith('-single')));
   assert.match(recovery.planningRequirements.instruction, /reason\/title/);
   assert.match(recovery.planningRequirements.instruction, /Empty objective or acceptance criteria/);
   assert.equal(JSON.stringify(store.read()), before, 'recovery must not submit or mutate the checklist');

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Check,
@@ -10,8 +10,9 @@ import {
   LoaderCircle,
   Minus,
   Pause,
+  ShieldQuestion,
 } from 'lucide-react';
-import type { ChatMessage } from '../../shared/types';
+import type { ChatMessage, UserQuestion } from '../../shared/types';
 
 interface ChecklistModule {
   id: string;
@@ -304,49 +305,200 @@ export function ChecklistView({ text, prevText, controlState }: { text: string; 
   );
 }
 
+/** Inline single-choice card shown inside the checklist dock while the agent waits for a decision. */
+function QuestionCard({
+  question,
+  onAnswer,
+}: {
+  question: UserQuestion;
+  onAnswer: (value: string) => Promise<void>;
+}) {
+  // The native ask_user fallback includes a custom-entry sentinel; the dock
+  // already provides its own inline Other input.
+  const options = (question.options ?? []).filter(
+    (option) => option !== '✏️ Type custom response...',
+  );
+  const [selected, setSelected] = useState(options.length ? options[0] : '');
+  const [other, setOther] = useState(!options.length);
+  const [text, setText] = useState('');
+  const [answering, setAnswering] = useState(false);
+  const [error, setError] = useState('');
+  const confirmation = question.kind === 'confirm';
+  async function answer(value: string) {
+    if (!value.trim() || answering) return;
+    setAnswering(true);
+    setError('');
+    try {
+      await onAnswer(value);
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setAnswering(false);
+    }
+  }
+  return (
+    <form
+      className="question-panel dock-question"
+      aria-label="需要你的决定"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void answer(confirmation ? options[0] || '确认' : other ? text.trim() : selected);
+      }}
+    >
+      <strong>{question.title}</strong>
+      {question.message && <p>{question.message}</p>}
+      {!confirmation && (
+        <fieldset disabled={answering} className="dock-question-options">
+          <legend className="sr-only">选择回答</legend>
+          {options.map((option) => (
+            <label key={option}>
+              <input
+                type="radio"
+                name="research-answer"
+                checked={!other && selected === option}
+                onChange={() => {
+                  setSelected(option);
+                  setOther(false);
+                }}
+              />
+              <span>{option}</span>
+            </label>
+          ))}
+          <label>
+            <input
+              type="radio"
+              name="research-answer"
+              checked={other}
+              onChange={() => setOther(true)}
+            />
+            <span>其他</span>
+          </label>
+          <input
+            aria-label="自定义回答"
+            placeholder="写下你的决定…"
+            value={text}
+            onFocus={() => setOther(true)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setOther(true);
+            }}
+          />
+        </fieldset>
+      )}
+      {error && (
+        <p className="dock-question-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="dock-question-actions">
+        {confirmation && (
+          <button
+            type="button"
+            disabled={answering}
+            onClick={() => void answer(options[1] || '取消')}
+          >
+            暂缓
+          </button>
+        )}
+        <button
+          type="submit"
+          disabled={answering || (!confirmation && !(other ? text.trim() : selected))}
+        >
+          {answering ? '提交中…' : '下一步'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function ChecklistDock({
   sessionId,
   text,
   prevText,
   controlState,
+  question,
+  onAnswer,
 }: {
   sessionId: string;
-  text: string;
+  text?: string;
   prevText?: string;
   controlState?: string;
+  question?: UserQuestion;
+  onAnswer?: (value: string) => Promise<void>;
 }) {
   const storageKey = `gewu-checklist-dock-${sessionId}`;
-  const [expanded, setExpanded] = useState(() => {
+  const [collapsed, setCollapsed] = useState(() => {
     try {
-      const saved = localStorage.getItem(storageKey);
-      return saved === null ? true : saved === 'expanded';
+      return localStorage.getItem(storageKey) === 'collapsed';
     } catch {
-      return true;
+      return false;
     }
   });
+  // A pending question covers the checklist; it always starts expanded so the
+  // options are visible, but the bar still collapses to a one-line prompt.
+  const [questionCollapsed, setQuestionCollapsed] = useState(false);
+  useEffect(() => setQuestionCollapsed(false), [question?.id]);
+  const expanded = question ? !questionCollapsed : !collapsed;
   const panelId = useId();
   const data = useMemo(() => {
+    if (!text) return null;
     try {
       return JSON.parse(text) as ChecklistData;
     } catch {
       return null;
     }
   }, [text]);
-  if (!data?.modules?.length) return null;
+  if (!question && !data?.modules?.length) return null;
 
-  const state = controlState ?? data.control?.state;
+  if (question) {
+    return (
+      <section className="checklist-dock question-dock" aria-label="需要你的决定">
+        <div id={panelId} className="checklist-dock-panel" hidden={!expanded}>
+          {expanded && (
+            <>
+              <QuestionCard
+                key={question.id}
+                question={question}
+                onAnswer={async (value) => {
+                  await onAnswer?.(value);
+                }}
+              />
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          className="checklist-dock-toggle"
+          aria-label={`${expanded ? '收起' : '展开'}待决问题`}
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          onClick={() => setQuestionCollapsed((value) => !value)}
+        >
+          <ShieldQuestion size={14} />
+          <span className="checklist-dock-current" title={question.title}>
+            {question.title}
+          </span>
+          <span className="checklist-dock-status">等待你的选择</span>
+          {expanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+      </section>
+    );
+  }
+
+  const state = controlState ?? data!.control?.state;
   const active = new Set(['running', 'awaiting_acceptance', 'blocked']);
+  const modules = data!.modules ?? [];
   const current =
     state === 'completed'
       ? undefined
-      : (data.currentModule && active.has(data.currentModule.status || '')
-          ? data.currentModule
-          : undefined) || data.modules.find((module) => active.has(module.status || ''));
-  const allTerminal = data.modules.every((module) =>
+      : (data!.currentModule && active.has(data!.currentModule.status || '')
+          ? data!.currentModule
+          : undefined) || modules.find((module) => active.has(module.status || ''));
+  const allTerminal = modules.every((module) =>
     ['completed', 'skipped'].includes(module.status || ''),
   );
-  const allCompleted = data.modules.every((module) => module.status === 'completed');
-  const finished = state === 'completed' || data.nextAction === 'finish' || allCompleted;
+  const allCompleted = modules.every((module) => module.status === 'completed');
+  const finished = state === 'completed' || data!.nextAction === 'finish' || allCompleted;
   const title = current
     ? `${current.id}：${current.objective || current.id}`
     : finished
@@ -379,7 +531,7 @@ export function ChecklistDock({
   return (
     <section className="checklist-dock" aria-label="研究清单">
       <div id={panelId} className="checklist-dock-panel" hidden={!expanded}>
-        {expanded && <ChecklistView text={text} prevText={prevText} controlState={state} />}
+        {expanded && text && <ChecklistView text={text} prevText={prevText} controlState={state} />}
       </div>
       <button
         type="button"
@@ -389,7 +541,7 @@ export function ChecklistDock({
         aria-controls={panelId}
         onClick={() => {
           const next = !expanded;
-          setExpanded(next);
+          setCollapsed(!next);
           try {
             localStorage.setItem(storageKey, next ? 'expanded' : 'collapsed');
           } catch {}

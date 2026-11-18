@@ -366,6 +366,89 @@
   cursor: not-allowed;
 }
 
+/* Model select list in settings */
+.model-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 25px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.model-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+  text-align: left;
+}
+.model-select-item:hover {
+  border-color: #c7d7f4;
+  background: var(--panel-soft);
+}
+.model-select-item.active {
+  border-color: var(--cobalt);
+  background: var(--cobalt-paler);
+  color: var(--ink);
+}
+.model-select-name {
+  font-weight: 550;
+  color: var(--ink);
+}
+.model-select-provider {
+  color: var(--muted);
+  font-size: 11px;
+}
+.model-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--cobalt-pale);
+  color: var(--cobalt);
+  font-size: 10px;
+  font-weight: 550;
+}
+
+/* Thinking level slider in settings */
+.thinking-level-control {
+  padding-left: 25px;
+}
+.thinking-level-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.thinking-level-value {
+  font-weight: 550;
+  color: var(--cobalt);
+}
+.thinking-level-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.thinking-level-tick {
+  font-size: 10px;
+  color: var(--muted);
+  transition: color var(--motion-fast);
+}
+.thinking-level-tick.active {
+  color: var(--cobalt);
+  font-weight: 550;
+}
+
 @media (max-width: 700px) {
   .settings-dialog {
     width: 96vw;
@@ -481,4 +564,21 @@
   background: var(--cobalt-pale);
   color: var(--cobalt);
   overflow: hidden;
+}
+
+.model-provider-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px 25px;
+  font-size: 12px;
+}
+.model-provider-select select {
+  min-width: 0;
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
 }

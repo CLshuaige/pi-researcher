@@ -102,6 +102,14 @@ export async function syncRuntimeConfig(
   input?: Record<string, unknown>,
 ): Promise<void> {
   const value = input ?? (await readConfig(root, workspace, 'research-modules'));
+  if (
+    value.presentation !== undefined &&
+    (!value.presentation ||
+      typeof value.presentation !== 'object' ||
+      Array.isArray(value.presentation) ||
+      typeof (value.presentation as { enabled?: unknown }).enabled !== 'boolean')
+  )
+    throw Object.assign(new Error('画板开关必须为布尔值'), { status: 400 });
   const literature = value.literature as Record<string, unknown> | undefined;
   const runtime = {
     hypothesis: value.hypothesis ?? { max_debate_iterations: 5 },

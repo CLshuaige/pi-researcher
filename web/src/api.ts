@@ -103,6 +103,10 @@ export const api = {
     for (const file of files) form.append('files', file);
     return request<Attachment[]>(`/sessions/${id}/uploads`, { method: 'POST', body: form });
   },
+  resolveFile: (id: string, path: string) =>
+    request<{ path: string; name: string }>(
+      `/sessions/${id}/files/resolve?path=${encodeURIComponent(path)}`,
+    ),
   preview: (id: string, path: string) =>
     request<{ text: string }>(`/sessions/${id}/files/preview?path=${encodeURIComponent(path)}`),
   deleteFile: (id: string, path: string) =>
