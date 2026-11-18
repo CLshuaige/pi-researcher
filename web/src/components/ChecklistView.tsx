@@ -147,7 +147,7 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
   );
 }
 
-export function ChecklistView({ text, prevText }: { text: string; prevText?: string }) {
+export function ChecklistView({ text, prevText, controlState }: { text: string; prevText?: string; controlState?: string }) {
   const reduceMotion = useReducedMotion();
 
   const data = useMemo(() => {
@@ -174,7 +174,8 @@ export function ChecklistView({ text, prevText }: { text: string; prevText?: str
   const done = modules.filter((m) => m.status === 'completed').length;
   const total = modules.length;
   const currentId = data.currentModule?.id;
-  const controlState = data.control?.state;
+  const effectiveControlState = controlState ?? data.control?.state;
+  const currentRunningId = currentId ?? modules.find((m) => m.status === 'running')?.id;
   const allDone = total > 0 && done === total;
   const nextLabel =
     NEXT_ACTION_LABELS[data.nextAction || ''] ||
@@ -205,7 +206,7 @@ export function ChecklistView({ text, prevText }: { text: string; prevText?: str
         <header className="cl-header">
           <div className="cl-heading">
             <span className="cl-heading-title">研究清单</span>
-            {controlState === 'paused' && <span className="cl-badge paused">已暂停</span>}
+            {effectiveControlState === 'paused' && <span className="cl-badge paused">已暂停</span>}
             {nextLabel && <span className="cl-next">{nextLabel}</span>}
           </div>
           <div className="cl-progress">
@@ -229,7 +230,14 @@ export function ChecklistView({ text, prevText }: { text: string; prevText?: str
         {modules.length > 0 && (
           <div className="cl-timeline">
             {modules.map((m, i) => {
-              const meta = statusMeta(m.status);
+              const isCurrentRunning = m.id === currentRunningId && m.status === 'running';
+              const pausedOrStopped = isCurrentRunning && (effectiveControlState === 'paused' || effectiveControlState === 'stopped');
+              const waiting = isCurrentRunning && effectiveControlState === 'waiting';
+              const meta = pausedOrStopped
+                ? { ...statusMeta(m.status), label: effectiveControlState === 'paused' ? '已暂停' : '已停止', icon: <Pause size={12} /> }
+                : waiting
+                  ? { ...statusMeta(m.status), label: '等待中', icon: <Circle size={11} /> }
+                  : statusMeta(m.status);
               const isCurrent = m.id === currentId;
               const isNew = prevText ? !prevModules.has(m.id) : false;
               const isChanged = prevText ? prevModules.get(m.id) !== moduleSignature(m) : false;
@@ -371,7 +379,7 @@ export function ChecklistDock({
   return (
     <section className="checklist-dock" aria-label="研究清单">
       <div id={panelId} className="checklist-dock-panel" hidden={!expanded}>
-        {expanded && <ChecklistView text={text} prevText={prevText} />}
+        {expanded && <ChecklistView text={text} prevText={prevText} controlState={state} />}
       </div>
       <button
         type="button"
