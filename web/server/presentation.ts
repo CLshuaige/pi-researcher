@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { readConfig } from './config.ts';
 import { presentationRole } from '../shared/types.ts';
 import { mkdir, readFile, writeFile, rename, rm, realpath, lstat, stat } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
@@ -353,13 +354,27 @@ export class PresentationManager {
     }
   }
   async enable(s: StoredSession) {
+    const config = await readConfig(this.root, this.store.workspace(s.id), 'research-modules');
+    await this.setEnabled(
+      s,
+      (config.presentation as { enabled?: boolean } | undefined)?.enabled ?? true,
+    );
+  }
+  async setEnabled(s: StoredSession, enabled: boolean) {
     if (s.mode !== 'pi' || s.phase !== 'started') return;
     const e = this.entry(s.id);
     await this.state(s);
-    e.state.enabled = true;
-    e.paused = false;
-    await atomic(join(await this.directory(s), 'state.json'), JSON.stringify(e.state));
-    await this.observe(s);
+    if (!enabled) {
+      // Fence pending previews/publishes before awaiting cancellation.
+      e.state.enabled = false;
+      await this.suspend(s);
+    } else {
+      e.state.enabled = true;
+      e.paused = false;
+    }
+    await this.save(s);
+    this.emit(s);
+    if (enabled) await this.observe(s);
   }
   private blocked(s: StoredSession) {
     const control = s.workflow.control;
@@ -522,6 +537,11 @@ export class PresentationManager {
   async observe(s: StoredSession) {
     const e = this.entries.get(s.id);
     if (!e) return;
+    const config = await readConfig(this.root, this.store.workspace(s.id), 'research-modules');
+    if ((config.presentation as { enabled?: boolean } | undefined)?.enabled === false) {
+      if (e.state.enabled || e.active || e.timers) await this.setEnabled(s, false);
+      return;
+    }
     if (this.blocked(s)) {
       if (e.active || e.desired.size || e.timers) {
         const wasPaused = e.paused;
@@ -1251,7 +1271,7 @@ export class PresentationManager {
           `项目根目录：${workspace}\n唯一可写文件：${draft}\n` +
           `${resumed ? '本次接续失败展板的原会话与草稿，先前已读材料的指纹已重新核验。利用已有材料和工具错误修复剩余内容，不重复读取同一材料或从头重写。' : ''}\n` +
           `${resumed && existsSync(draft) ? '现有草稿已保留，按需 read 定位需要修改的位置，优先 edit 修复和补齐剩余内容，保留已有效的图文。' : job.previous ? '该文件已放入上一份展板。使用原生 read 查看需要修改的位置，优先 edit 逐块修改；需要重构时先 write 完整样式和布局骨架，再 edit 填入各块内容。' : '首次绘制，先 write 一份很短的完整 HTML 骨架，包含闭合的 style、布局容器和内容占位注释，再用 edit 逐块替换占位内容。不要一次 write 整份长展板。'}\n` +
-          `每次 write/edit 成功后，宿主都会自动预览当前文件。每次保存必须保留完整标签和样式，按有意义的段落、图表或分区逐块提交，不追加尚未闭合的 HTML；无需反复调用发布。全部填好并移除占位内容后才调用 presentation_publish({})。\n` +
+          `每次 write/edit 成功后，宿主都会自动预览当前文件。宽表、多步流水线和大型 SVG 保留可读的列宽、节点宽与原始比例；空间不足时使用局部横向滚动，不挤窄成逐字竖排，不用绝对定位叠放正文。每次保存必须保留完整标签和样式，按有意义的段落、图表或分区逐块提交，不追加尚未闭合的 HTML；无需反复调用发布。全部填好并移除占位内容后才调用 presentation_publish({})。\n` +
           `无需给栏目增加 ID，不规定栏目或模板。编辑后调用 presentation_publish({}) 发布文件，不能只回复完成。\n` +
           `阶段：${job.snapshot.stage.label}；科研版本：${job.snapshot.version!.kind === 'analysis' ? '补充分析' : 'V' + job.snapshot.version!.versionNumber}；版本ID：${job.snapshot.version!.id}\n` +
           `本次目标：${job.snapshot.version!.objective}\n本次证据：${JSON.stringify(job.snapshot.version!.evidence)}\n` +
@@ -1411,11 +1431,17 @@ export class PresentationManager {
     }
     const token = randomUUID().replaceAll('-', '');
     const facts = JSON.stringify(state.facts[id] || {}).replaceAll('<', '\\u003c');
-    const script = `const token=${JSON.stringify(token)};let last=0;function size(){const height=Math.ceil(document.body.getBoundingClientRect().height);if(height>0&&height!==last){last=height;parent.postMessage({type:'presentation-size',height,token},'*')}}function update(f){document.querySelectorAll('[data-fact]').forEach(e=>{const k=e.dataset.fact;if(Object.hasOwn(f,k))e.textContent=String(f[k])});requestAnimationFrame(size)}update(${facts});new ResizeObserver(size).observe(document.body);addEventListener('load',size);document.fonts.ready.then(size);document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-source]');if(a){e.preventDefault();parent.postMessage({type:'presentation-source',id:a.dataset.source,token},'*')}});addEventListener('message',e=>{if(e.source===parent&&e.data?.type==='presentation-facts'&&e.data.token===token)update(e.data.facts)});addEventListener('wheel',e=>{e.preventDefault();const unit=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1;if(e.ctrlKey||e.metaKey)parent.postMessage({type:'presentation-zoom',dy:e.deltaY*unit,x:e.clientX,y:e.clientY,token},'*');else parent.postMessage({type:'presentation-pan',dx:e.deltaX*unit,dy:e.deltaY*unit,token},'*')},{passive:false});`;
+    const script = `const token=${JSON.stringify(token)};let last=0;function size(){const height=Math.ceil(document.body.getBoundingClientRect().height);if(height>0&&height!==last){last=height;parent.postMessage({type:'presentation-size',height,token},'*')}}function update(f){document.querySelectorAll('[data-fact]').forEach(e=>{const k=e.dataset.fact;if(Object.hasOwn(f,k))e.textContent=String(f[k])});requestAnimationFrame(size)}update(${facts});new ResizeObserver(size).observe(document.body);addEventListener('load',size);document.fonts.ready.then(size);document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-source]');if(a){e.preventDefault();parent.postMessage({type:'presentation-source',id:a.dataset.source,token},'*')}});addEventListener('message',e=>{if(e.source===parent&&e.data?.type==='presentation-facts'&&e.data.token===token)update(e.data.facts)});function scrollable(node,dx,dy){for(let el=node instanceof Element?node:node?.parentElement;el&&el!==document.documentElement;el=el.parentElement){const css=getComputedStyle(el);const x=/(auto|scroll)/.test(css.overflowX)&&el.scrollWidth>el.clientWidth+1;const y=/(auto|scroll)/.test(css.overflowY)&&el.scrollHeight>el.clientHeight+1;if(x&&((dx<0&&el.scrollLeft>0)||(dx>0&&el.scrollLeft+el.clientWidth<el.scrollWidth-1))){el.scrollLeft+=dx;return true}if(y&&((dy<0&&el.scrollTop>0)||(dy>0&&el.scrollTop+el.clientHeight<el.scrollHeight-1))){el.scrollTop+=dy;return true}if(x&&!dx&&dy&&((dy<0&&el.scrollLeft>0)||(dy>0&&el.scrollLeft+el.clientWidth<el.scrollWidth-1))){el.scrollLeft+=dy;return true}}return false}
+function visualScroll(el,minWidth){const wrap=document.createElement('div');wrap.className='presentation-visual-scroll';el.before(wrap);wrap.append(el);el.style.setProperty('min-width',minWidth+'px');el.style.setProperty('max-width','none');}
+document.querySelectorAll('table').forEach(el=>{const cols=Math.max(1,...Array.from(el.rows,row=>Array.from(row.cells).reduce((n,cell)=>n+cell.colSpan,0)));visualScroll(el,Math.max(480,cols*145));el.style.setProperty('table-layout','auto');el.querySelectorAll('th,td').forEach(cell=>{cell.style.setProperty('word-break','normal');cell.style.setProperty('overflow-wrap','break-word');cell.style.setProperty('min-width','110px')})});
+document.querySelectorAll('svg').forEach(el=>{const width=el.viewBox.baseVal.width||parseFloat(el.getAttribute('width'))||0;if(width>360)visualScroll(el,width)});
+document.querySelectorAll('body *').forEach(el=>{const css=getComputedStyle(el);if(css.display==='grid'){const cols=css.gridTemplateColumns.split(/\\s+/).filter(value=>/^[0-9.]+px$/.test(value)).length;if(cols>=3){el.style.setProperty('grid-template-columns','repeat('+cols+',minmax(120px,1fr))');el.style.setProperty('overflow-x','auto');el.style.setProperty('max-width','100%')}}if(css.display==='flex'&&css.flexDirection==='row'&&css.flexWrap==='nowrap'&&el.children.length>=3){el.style.setProperty('overflow-x','auto');el.style.setProperty('max-width','100%');for(const child of el.children){if(child instanceof HTMLElement){child.style.setProperty('flex-shrink','0');child.style.setProperty('min-width',Math.max(110,Math.min(240,child.scrollWidth))+'px')}}}});
+requestAnimationFrame(size);
+addEventListener('wheel',e=>{const unit=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1;let dy=e.deltaY*unit,dx=e.deltaX*unit;if(e.ctrlKey||e.metaKey){e.preventDefault();parent.postMessage({type:'presentation-zoom',dy,x:e.clientX,y:e.clientY,token},'*');return}if(e.shiftKey&&!dx){dx=dy;dy=0}e.preventDefault();if(scrollable(e.target,dx,dy))return;parent.postMessage({type:'presentation-pan',dx,dy,token},'*')},{passive:false});`;
 
     const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'nonce-${token}'; base-uri 'none'; form-action 'none'; frame-src 'none'`;
     return {
-      html: `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html{color:#18283d;font:14px/1.7 system-ui;background:#fff;height:auto!important;overflow:hidden!important}body{display:flow-root;height:auto!important;min-height:0!important;margin:0;padding:22px;overflow:visible!important;overflow-wrap:anywhere}img{display:block;max-width:100%;height:auto}*{box-sizing:border-box}svg{max-width:100%}a{color:#1769ff}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #ddd}</style></head><body>${html}<script nonce="${token}">${script}</script></body></html>`,
+      html: `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html{color:#18283d;font:14px/1.7 system-ui;background:#fff;height:auto!important;overflow:hidden!important}body{display:flow-root;height:auto!important;min-height:0!important;margin:0;padding:22px;overflow:visible!important;overflow-wrap:anywhere}img{display:block;max-width:100%;height:auto}*{box-sizing:border-box}svg{max-width:100%}a{color:#1769ff}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #ddd}.presentation-visual-scroll{display:block;max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin;padding-bottom:6px}</style></head><body>${html}<script nonce="${token}">${script}</script></body></html>`,
       token,
       digest: stage.digest,
       sources: stage.sources,

@@ -3,14 +3,7 @@ import { FileIcon } from './FileIcon';
 import { api } from '../api';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pause, Square, Plus, X, LoaderCircle, Quote, Shield, ShieldCheck } from 'lucide-react';
-import type {
-  Attachment,
-  MessageQuote,
-  RunStatus,
-  ModelOption,
-  ThinkingLevel,
-} from '../../shared/types';
-import { ModelSelector } from './ModelSelector';
+import type { Attachment, MessageQuote, RunStatus } from '../../shared/types';
 
 export function Composer({
   sessionId,
@@ -29,12 +22,6 @@ export function Composer({
   onStop,
   onUpload,
   reportError,
-  models,
-  currentModel,
-  thinkingLevel,
-  onModelChange,
-  onThinkingLevelChange,
-  onOpenSettings,
   onPreviewFile,
 }: {
   sessionId: string;
@@ -58,12 +45,6 @@ export function Composer({
   onStop: () => Promise<void>;
   onUpload: (files: File[]) => Promise<Attachment[]>;
   reportError: (message: string) => void;
-  models?: ModelOption[];
-  currentModel?: string;
-  thinkingLevel?: ThinkingLevel;
-  onModelChange?: (model: string) => void;
-  onThinkingLevelChange?: (level: ThinkingLevel) => void;
-  onOpenSettings?: () => void;
   onPreviewFile?: (path: string, name: string) => void;
 }) {
   // Keep the one draft locally while switching history or refreshing.
@@ -98,8 +79,8 @@ export function Composer({
     const load = () =>
       api
         .getConfig(sessionId, 'research-modules')
-        .then((result) => {
-          if (!cancelled) setAutoMode(result.value.interactionMode === 'auto');
+        .then(({ value }) => {
+          if (!cancelled) setAutoMode((value.interactionMode ?? 'auto') === 'auto');
         })
         .catch((error) => {
           if (!cancelled) reportError(error.message);
@@ -117,9 +98,9 @@ export function Composer({
     if (modeSaving) return;
     setModeSaving(true);
     try {
-      const result = await api.getConfig(sessionId, 'research-modules');
+      const { value } = await api.getConfig(sessionId, 'research-modules');
       const saved = await api.patchConfig(sessionId, 'research-modules', {
-        interactionMode: result.value.interactionMode === 'auto' ? 'review' : 'auto',
+        interactionMode: (value.interactionMode ?? 'auto') === 'auto' ? 'review' : 'auto',
       });
       setAutoMode(saved.value.interactionMode === 'auto');
       window.dispatchEvent(new Event('research-config-changed'));
@@ -358,7 +339,6 @@ export function Composer({
               aria-label="选择研究附件"
               onChange={(e) => void upload(e.target.files)}
             />
-            {/* Mode toggle: shield for auto-run vs stage-review */}
             <button
               type="button"
               disabled={modeSaving || !connected}
@@ -377,18 +357,6 @@ export function Composer({
               )}
             </button>
             <div className="composer-spacer" />
-            {/* Model selector - placed before send button */}
-            {models && currentModel && thinkingLevel && onModelChange && onThinkingLevelChange && (
-              <ModelSelector
-                models={models}
-                currentModel={currentModel}
-                thinkingLevel={thinkingLevel}
-                onModelChange={onModelChange}
-                onThinkingLevelChange={onThinkingLevelChange}
-                onOpenSettings={onOpenSettings}
-                disabled={busy || uploading || !connected}
-              />
-            )}
             <Button
               type="submit"
               className="send-button"

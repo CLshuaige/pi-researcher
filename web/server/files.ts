@@ -85,3 +85,38 @@ export async function listArtifacts(
 export function flattenFiles(items: Artifact[]): Artifact[] {
   return items.flatMap((a) => (a.kind === 'directory' ? flattenFiles(a.children || []) : [a]));
 }
+
+/** Resolve historical read-only links after a move; never guess among same-name files. */
+export async function resolveFileReference(workspace: string, path: string): Promise<string> {
+  try {
+    await safePath(workspace, path);
+    return path;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  const files = flattenFiles(await listArtifacts(workspace));
+  const version = path.match(/(?:^|\/)revisions\/([^/]+)\//)?.[1];
+  const eligible = files.filter((file) => !version || file.path.includes(`/revisions/${version}/`));
+  const suffix = eligible.filter((file) => file.path.endsWith('/' + path));
+  const candidates = suffix.length
+    ? suffix
+    : eligible.filter((file) => file.path.split('/').pop() === path.split('/').pop());
+  if (candidates.length === 1) {
+    await safePath(workspace, candidates[0].path);
+    return candidates[0].path;
+  }
+  if (candidates.length > 1)
+    throw Object.assign(
+      new Error(
+        '原文件已移动，但存在多个同名文件，请从研究产物中选择：' +
+          candidates.map((file) => file.path).join('、'),
+      ),
+      { status: 409 },
+    );
+  throw Object.assign(
+    new Error(
+      '该文件当前不存在，可能已被删除或只是步骤中的示例文件名。请从研究产物中查看实际交付文件。',
+    ),
+    { status: 404 },
+  );
+}

@@ -8,7 +8,14 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ResearchService } from './service.ts';
-import { displayFilename, flattenFiles, isVisiblePath, listArtifacts, safePath } from './files.ts';
+import {
+  displayFilename,
+  flattenFiles,
+  isVisiblePath,
+  listArtifacts,
+  safePath,
+  resolveFileReference,
+} from './files.ts';
 import type { Attachment } from '../shared/types.ts';
 import { parseQuote, parseQuotes } from './messages.ts';
 import {
@@ -346,9 +353,20 @@ export async function createApp(root: string, dataDir: string) {
       res.status(201).json(files);
     },
   );
+  app.get('/api/sessions/:id/files/resolve', async (req, res) => {
+    const s = session(req);
+    const path = await resolveFileReference(
+      service.store.workspace(s.id),
+      String(req.query.path || ''),
+    );
+    res.json({ path, name: displayFilename(path) });
+  });
   app.get('/api/sessions/:id/files/preview', async (req, res) => {
     const s = session(req);
-    const path = String(req.query.path || '');
+    const path = await resolveFileReference(
+      service.store.workspace(s.id),
+      String(req.query.path || ''),
+    );
     // Image files: serve inline for preview
     if (/\.(png|jpe?g|gif|webp|pdf)$/i.test(path)) {
       const target = await safePath(service.store.workspace(s.id), path);
@@ -385,9 +403,10 @@ export async function createApp(root: string, dataDir: string) {
     const workspace = service.store.workspace(s.id);
     const path = String(req.query.path || '');
     if (path) {
-      const target = await safePath(workspace, path);
+      const resolved = await resolveFileReference(workspace, path);
+      const target = await safePath(workspace, resolved);
       const info = await stat(target);
-      if (info.isFile()) return res.download(target, displayFilename(path));
+      if (info.isFile()) return res.download(target, displayFilename(resolved));
     }
     const tree = await listArtifacts(workspace);
     const files = flattenFiles(tree).filter((f) => !path || f.path.startsWith(path + '/'));
@@ -457,7 +476,13 @@ export async function createApp(root: string, dataDir: string) {
         req.method === 'PATCH' ? { ...(await readConfig(root, ws, key)), ...req.body } : req.body;
       if (key === 'research-modules') await syncRuntimeConfig(root, ws, value);
       await writeWorkspaceConfig(ws, key, value);
-      if (key === 'research-modules') await service.bridge.settingsChanged(s, value);
+      if (key === 'research-modules') {
+        await service.presentation.setEnabled(
+          s,
+          (value.presentation as { enabled?: boolean } | undefined)?.enabled ?? true,
+        );
+        await service.bridge.settingsChanged(s, value);
+      }
       return value;
     });
     res.json({ key, value, overridden: true });
@@ -472,7 +497,13 @@ export async function createApp(root: string, dataDir: string) {
       await removeWorkspaceConfig(ws, key);
       if (key === 'research-modules') await syncRuntimeConfig(root, ws);
       const value = await readConfig(root, ws, key);
-      if (key === 'research-modules') await service.bridge.settingsChanged(s, value);
+      if (key === 'research-modules') {
+        await service.presentation.setEnabled(
+          s,
+          (value.presentation as { enabled?: boolean } | undefined)?.enabled ?? true,
+        );
+        await service.bridge.settingsChanged(s, value);
+      }
       return value;
     });
     res.json({ key, value, overridden: false });

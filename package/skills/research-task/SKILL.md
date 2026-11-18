@@ -7,7 +7,7 @@ description: 在 Pi 主会话中细化科研目标、澄清影响方向的歧义
 
 把用户想法细化为可以开始探索的研究任务。保留探索性与未知项，只补充下一步所需的信息。
 
-> **流程要求**：开始任何工作前，必须先调用 `research_checklist(action: "init")` 初始化研究清单，然后调用 `research_checklist(action: "plan", modules: [...])` 规划研究模块。清单初始化完成前，除 `read`/`grep`/`find`/`ls` 外的工具调用都会被拦截。
+> **流程要求**：以最新检查点或工具结果中的 Checklist 状态为准，缺少状态时先 `research_checklist(action: "read")`。仅在尚未初始化时调用 `init`；已初始化但没有模块时调用 `plan`；当前模块为 `pending` 时先 `start`，已启动则继续未完成工作，不重复初始化或重建计划。规划和启动前允许 `read`/`grep`/`find`/`ls` 与 `ask_user` 做必要的只读检查和澄清；命令执行、产物写入和委派仍须先规划并启动当前模块。Checklist 只绑定阶段技能：`research-task`、`research-literature`、`research-hypothesis`、`research-method`、`research-experiment`、`research-report`、`research-review`；`-single` 等内部执行技能不填入阶段计划。
 
 产物正文默认跟随用户的交互语言，不以输入材料的语言决定；用户明确指定语言时遵从其要求。论文标题、代码标识符及原始记录保留原文。
 
@@ -21,8 +21,10 @@ description: 在 Pi 主会话中细化科研目标、澄清影响方向的歧义
 
 - `auto`：采用合理默认假设，记入 task.md；继续当前任务解析阶段可做的工作。关键数据或资源缺失时说明限制并交付任务说明，不提前执行后续阶段，不擅自替换研究目标或生成假结果。
 - `review`：只对会改变科学问题、数据、关键约束、资源或交付目标的歧义提问。每次聚焦一个决策，给出 2–4 个具体选项、推荐默认值及自定义回答入口。等待回答；用户明确选择默认值或授权自主决定后再推进依赖它的工作。
+- 阶段交付后的审批由 `research_checklist(action: "accept", ...)` 自动触发宿主的 Checklist 确认框；提交完整 evidence 与 acceptance，等待用户点击“下一步”，不另用 `ask_user` 重复询问阶段验收。
 - 有 `ask_user` 时按实际工具 schema 呈现问题；否则正常对话列出选项。无交互通道时先完成独立可做的部分，交接待决问题。
 - 用户追问或改变目标时先回应，再更新 task.md 及受影响的假设。
+- 连续消息中，最新要求明确替换目标时按最新要求处理；只是补充约束时合并保留，不丢弃前文。两个目标关系不明确时按交互模式澄清或记录合理默认选择，通过 Checklist 的 `resolve` 处理对应指令及必要的目标变更，不重新 `init`。已有计划时仅调整受影响范围，已验收成果的修改使用 `followup`。
 
 ## 工作方式
 

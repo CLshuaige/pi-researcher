@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FileBox,
   GitBranch,
-  MoreHorizontal,
   PanelLeftOpen,
   Pencil,
   Settings2,
@@ -17,6 +16,7 @@ import { api } from './api';
 import { Sidebar } from './components/Sidebar';
 import { Conversation } from './components/Conversation';
 import { Workflow } from './components/Workflow';
+import { flatten } from './components/FileTree';
 import { Artifacts } from './components/Artifacts';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PreviewPanel, type PreviewTab } from './components/PreviewPanel';
@@ -146,6 +146,43 @@ export default function App() {
     // Auto-dismiss after 4 seconds
     setTimeout(() => setError(''), 4000);
   }, []);
+  const resolvingTabs = useRef(new Set<string>());
+  useEffect(() => {
+    if (!session) return;
+    const present = new Set(flatten(session.artifacts).map((file) => file.path));
+    for (const tab of previewTabs) {
+      if (!tab.path || present.has(tab.path) || resolvingTabs.current.has(tab.id)) continue;
+      const sessionId = session.id;
+      resolvingTabs.current.add(tab.id);
+      void api
+        .resolveFile(sessionId, tab.path)
+        .then((resolved) => {
+          if (active.current !== sessionId) return;
+          setPreviewTabs((old) =>
+            old.map((item) =>
+              item.id === tab.id
+                ? {
+                    ...item,
+                    path: resolved.path,
+                    title: resolved.name,
+                    ...(item.url
+                      ? {
+                          url: `/api/sessions/${sessionId}/files/preview?path=${encodeURIComponent(resolved.path)}`,
+                        }
+                      : {}),
+                  }
+                : item,
+            ),
+          );
+        })
+        .catch((error) => {
+          if (active.current !== sessionId) return;
+          setPreviewTabs((old) => old.filter((item) => item.id !== tab.id));
+          reportError(error.message);
+        })
+        .finally(() => resolvingTabs.current.delete(tab.id));
+    }
+  }, [session?.id, session?.artifacts, reportError]);
   const accept = useCallback((s: ResearchSession) => {
     if (s.id !== active.current || s.revision < version.current) return;
     version.current = s.revision;
@@ -281,7 +318,7 @@ export default function App() {
       void api.presentationVisible(activeId, false, viewer.current).catch(() => {});
     };
   }, [activeId, showFlow, hasPreviewTabs, connected]);
-  function openPreviewFile(path: string, name: string) {
+  async function openPreviewFile(path: string, name: string) {
     if (!session) return;
     setInspectorView('preview');
     if (session.workspacePath && path.startsWith(session.workspacePath + '/'))
@@ -291,7 +328,17 @@ export default function App() {
       const index = path.indexOf(marker);
       if (index >= 0) path = path.slice(index + marker.length);
     }
-    const id = `file-${path}`;
+    try {
+      const resolved = await api.resolveFile(session.id, path);
+      if (active.current !== session.id) return;
+      path = resolved.path;
+      name = resolved.name;
+    } catch (error) {
+      reportError((error as Error).message);
+      return;
+    }
+    const existing = previewTabs.find((tab) => tab.path === path);
+    const id = existing?.id || `file-${path}`;
     // Check if tab already exists
     if (previewTabs.some((t) => t.id === id)) {
       setActivePreviewId(id);
@@ -524,9 +571,7 @@ export default function App() {
             <Settings2 size={16} />
             <span>参数配置</span>
           </button>
-          <button className="icon-button more-button" aria-label="更多操作" title="更多操作">
-            <MoreHorizontal size={20} />
-          </button>
+          {/* Placeholder: the overflow menu has no features yet, so it stays hidden. */}
         </div>
       </header>
       {session && !creating ? (
@@ -543,13 +588,6 @@ export default function App() {
           onEdit={(id, text) => act(() => api.edit(session.id, id, text))}
           onRetry={(id) => act(() => api.retry(session.id, id)).catch(() => {})}
           onAnswer={(id, value) => api.answer(session.id, id, value).then(() => {})}
-          models={models}
-          onModelChange={(model) => void act(() => api.setModel(session.id, model))}
-          onThinkingLevelChange={(level) => void act(() => api.setThinkingLevel(session.id, level))}
-          onOpenSettings={() => {
-            setGlobalSettingsTab('apikey');
-            setShowGlobalSettings(true);
-          }}
           onPreviewFile={openPreviewFile}
           reportError={reportError}
         />
@@ -687,6 +725,13 @@ export default function App() {
           sessionId={session?.id}
           onClose={() => setShowSettings(false)}
           reportError={reportError}
+          models={models}
+          currentModel={session?.model}
+          thinkingLevel={session?.thinkingLevel}
+          onModelChange={(model) => session && void act(() => api.setModel(session.id, model))}
+          onThinkingLevelChange={(level) =>
+            session && void act(() => api.setThinkingLevel(session.id, level))
+          }
         />
       )}
       <Notification message={error} onClose={() => setError('')} />

@@ -35,11 +35,7 @@ const server = app.listen(port, '127.0.0.1', () =>
 );
 // Rebind persisted native runs after the server can already serve its UI.
 void service.resumeAfterRestart().catch(error => console.error('研究自动接续失败：', error));
-const refresh = setInterval(() => {
-  for (const s of service.store.sessions.values()) void service.refresh(s).catch(() => {});
-}, 1600);
 async function shutdown() {
-  clearInterval(refresh);
   server.close();
   await service.close();
   server.closeAllConnections();

@@ -2,8 +2,8 @@ import { PresentationManager } from './presentation.ts';
 import { refreshSubSessions } from './sub-sessions.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { existsSync, watch, type FSWatcher } from 'node:fs';
 import {
   fallbackProjectName,
   generateProjectName,
@@ -11,7 +11,7 @@ import {
   workspaceDirName,
 } from './naming.ts';
 import { isResearchWaiting, type Attachment, type ChatMessage, type MessageQuote } from '../shared/types.ts';
-import { listArtifacts } from './files.ts';
+import { isVisiblePath, listArtifacts } from './files.ts';
 import { completeDemoTools, seedDemo } from './demo.ts';
 import { PiBridge } from './pi.ts';
 import { SessionStore, type StoredSession } from './store.ts';
@@ -26,6 +26,17 @@ export class ResearchService {
   private demoRuns = new Map<string, AbortController>();
   private locks = new Map<string, Promise<unknown>>();
   private refreshing = new Set<string>();
+  private refreshAgain = new Set<string>();
+  private closed = false;
+  private fileWatches = new Map<
+    string,
+    {
+      root: string;
+      handles: Map<string, FSWatcher>;
+      timer?: ReturnType<typeof setTimeout>;
+      syncing?: Promise<void>;
+    }
+  >();
   constructor(root: string, dataDir: string) {
     this.store = new SessionStore(dataDir);
     this.presentation = new PresentationManager(root, this.store);
@@ -63,6 +74,7 @@ export class ResearchService {
   }
   changed(s: StoredSession) {
     if (!this.store.sessions.has(s.id)) return;
+    void this.updateFileWatches(s);
     s.revision++;
     s.updatedAt = Date.now();
     if (this.timers.has(s.id)) return;
@@ -77,10 +89,135 @@ export class ResearchService {
     const set = this.listeners.get(id) || new Set();
     set.add(listener);
     this.listeners.set(id, set);
+    const session = this.store.sessions.get(id);
+    if (session) void this.refresh(session).catch(error => {
+      session.notice = `文件状态刷新失败：${String(error)}`;
+      this.changed(session);
+    });
     return () => {
       set.delete(listener);
       if (!set.size) this.listeners.delete(id);
+      if (session) void this.updateFileWatches(session);
     };
+  }
+  private stopFileWatches(id: string) {
+    const entry = this.fileWatches.get(id);
+    if (!entry) return;
+    this.fileWatches.delete(id);
+    clearTimeout(entry.timer);
+    for (const handle of entry.handles.values()) handle.close();
+  }
+  private scheduleRefresh(s: StoredSession) {
+    const entry = this.fileWatches.get(s.id);
+    if (!entry || entry.timer || this.closed) return;
+    // Coalesce a burst of writes/renames; there is no idle scan or repeating timer.
+    entry.timer = setTimeout(() => {
+      entry.timer = undefined;
+      void this.refresh(s).catch(error => {
+        s.notice = `文件状态刷新失败：${String(error)}`;
+        this.changed(s);
+      });
+    }, 400);
+  }
+  private async updateFileWatches(s: StoredSession, reconcile = false) {
+    const needed =
+      !this.closed &&
+      this.store.sessions.has(s.id) &&
+      s.phase !== 'archived' &&
+      (this.listeners.has(s.id) ||
+        ['running', 'waiting', 'stopping'].includes(s.status) ||
+        s.subSessions.some((child) => ['running', 'pending'].includes(child.status)));
+    if (!needed) {
+      this.stopFileWatches(s.id);
+      return;
+    }
+    const root = this.store.workspace(s.id);
+    if (!existsSync(root)) return;
+    let entry = this.fileWatches.get(s.id);
+    if (entry?.root !== root) {
+      this.stopFileWatches(s.id);
+      entry = undefined;
+    }
+    if (!entry) {
+      entry = { root, handles: new Map() };
+      this.fileWatches.set(s.id, entry);
+      reconcile = true;
+    }
+    if (!reconcile || entry.syncing) return entry.syncing;
+    const current = entry;
+    const desired = new Set<string>();
+    const live = () => !this.closed && this.fileWatches.get(s.id) === current;
+    const report = (error: unknown) => {
+      if (!live()) return;
+      s.notice = `文件变化监听失败，重新打开会话可刷新：${String(error)}`;
+      this.changed(s);
+    };
+    const attach = (directory: string) => {
+      if (!live() || !existsSync(directory)) return;
+      desired.add(directory);
+      if (current.handles.has(directory)) return;
+      let handle: FSWatcher;
+      try {
+        handle = watch(directory, (event, filename) => {
+          const name = filename?.toString();
+          if (event === 'rename' && name === basename(directory)) {
+            handle.close(); current.handles.delete(directory);
+          }
+          if (!name || name === '.research' || isVisiblePath(name)) this.scheduleRefresh(s);
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
+      }
+      current.handles.set(directory, handle);
+      handle.on('error', (error) => {
+        handle.close();
+        current.handles.delete(directory);
+        report(error);
+      });
+    };
+    const visit = async (directory: string, control = false) => {
+      if (!live() || !existsSync(directory)) return;
+      attach(directory);
+      const children = await readdir(directory, { withFileTypes: true }).catch(error => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      });
+      for (const child of children) {
+        if (!child.isDirectory() || child.isSymbolicLink()) continue;
+        if (directory === root && child.name === '.research')
+          await visit(join(directory, child.name), true);
+        else if (control && directory === join(root, '.research')) {
+          if (['checklist', 'tasks', 'jobs'].includes(child.name))
+            await visit(join(directory, child.name), true);
+        } else if (isVisiblePath(child.name)) await visit(join(directory, child.name), control);
+      }
+    };
+    current.syncing = (async () => {
+      await visit(root);
+      // Native children may store status outside the Workspace. Watch only
+      // verified launch directories, never the entire plugin or /tmp tree.
+      for (const child of s.subSessions) {
+        if (
+          child.asyncDir &&
+          child.asyncRunId &&
+          basename(child.asyncDir) === child.asyncRunId &&
+          ['running', 'pending'].includes(child.status)
+        )
+          attach(child.asyncDir);
+      }
+      if (!live()) return;
+      for (const [directory, handle] of current.handles)
+        if (!desired.has(directory)) {
+          handle.close();
+          current.handles.delete(directory);
+        }
+    })()
+      .catch(report)
+      .finally(() => {
+        current.syncing = undefined;
+      });
+    return current.syncing;
   }
   async exclusive<T>(id: string, action: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(id) || Promise.resolve();
@@ -95,7 +232,11 @@ export class ResearchService {
   async refresh(s: StoredSession) {
     if (s.phase === 'archived' || (s.phase === 'draft' && !existsSync(this.store.workspace(s.id))))
       return;
-    if (this.refreshing.has(s.id)) return;
+    if (this.closed || !this.store.sessions.has(s.id)) return;
+    if (this.refreshing.has(s.id)) {
+      this.refreshAgain.add(s.id);
+      return;
+    }
     this.refreshing.add(s.id);
     try {
       const workspace = this.store.workspace(s.id);
@@ -116,9 +257,12 @@ export class ResearchService {
       void this.presentation.observe(s).catch(() => {});
       if (s.mode === 'pi' && (s.status === 'idle' || s.status === 'waiting'))
         s.status = isResearchWaiting(s) ? 'waiting' : 'idle';
-      if (JSON.stringify([s.artifacts, s.workflow, s.subSessions, s.status]) !== before) this.changed(s);
+      if (JSON.stringify([s.artifacts, s.workflow, s.subSessions, s.status]) !== before)
+        this.changed(s);
     } finally {
       this.refreshing.delete(s.id);
+      await this.updateFileWatches(s, true);
+      if (this.refreshAgain.delete(s.id)) this.scheduleRefresh(s);
     }
   }
   async rename(s: StoredSession, title: string) {
@@ -438,6 +582,7 @@ export class ResearchService {
     await this.bridge.setThinkingLevel(s, level as any);
   }
   async remove(s: StoredSession) {
+    this.stopFileWatches(s.id);
     await this.presentation.remove(s).catch(() => {});
     if (s.mode === 'demo') await this.stop(s);
     else await this.bridge.remove(s);
@@ -445,9 +590,13 @@ export class ResearchService {
     this.timers.delete(s.id);
     this.listeners.delete(s.id);
     this.store.sessions.delete(s.id);
+    this.stopFileWatches(s.id);
     await rm(join(this.store.dataDir, 'sessions', `${s.id}.json`), { force: true });
   }
   async close() {
+    this.closed = true;
+    for (const id of this.fileWatches.keys()) this.stopFileWatches(id);
+    this.refreshAgain.clear();
     await this.presentation.close();
     for (const controller of this.demoRuns.values()) controller.abort();
     await this.bridge.dispose();

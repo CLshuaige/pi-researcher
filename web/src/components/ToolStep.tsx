@@ -134,7 +134,7 @@ function extractFileRefs(m: ChatMessage): { path: string; name: string }[] {
   if (Array.isArray(args.files)) args.files.forEach(collect);
   if (Array.isArray(args.outputs)) args.outputs.forEach(collect);
   // Also parse from text content: lines that look like file paths
-  if (m.text) {
+  if (m.text && m.name !== 'read') {
     const lines = m.text.split('\n');
     for (const line of lines) {
       const match = line.match(
@@ -186,10 +186,12 @@ export function ToolStep({
   message: m,
   onRetry,
   onPreviewFile,
+  workspacePath,
 }: {
   message: ChatMessage;
   onRetry: () => void;
   onPreviewFile?: (path: string, name: string) => void;
+  workspacePath?: string;
 }) {
   const [open, setOpen] = useState(m.name !== 'research_checklist');
   const [retrying, setRetrying] = useState(false);
@@ -206,7 +208,10 @@ export function ToolStep({
       /* malformed tool link */
     }
   }
-  const fileRefs = extractFileRefs(m);
+  const fileRefs = (m.status === 'failed' ? [] : extractFileRefs(m)).filter(
+    (ref) =>
+      !workspacePath || !ref.path.startsWith('/') || ref.path.startsWith(workspacePath + '/'),
+  );
   const detail =
     (m.retryStatus === 'running' ? (m.retryProgress || `正在重试这一步（第 ${m.retryAttempts} 次）`) : '') ||
     m.description ||

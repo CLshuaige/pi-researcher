@@ -46,8 +46,6 @@ import type {
   ChatMessage,
   MessageQuote,
   ResearchSession,
-  ModelOption,
-  ThinkingLevel,
 } from '../../shared/types';
 
 function isFinalAnswer(session: ResearchSession, message: ChatMessage) {
@@ -192,10 +190,6 @@ export function Conversation({
   onAnswer,
   onPreviewFile,
   reportError,
-  models,
-  onModelChange,
-  onThinkingLevelChange,
-  onOpenSettings,
 }: {
   session: ResearchSession;
   messageJump?: { messageId: string; sequence: number };
@@ -213,10 +207,6 @@ export function Conversation({
   onAnswer: (id: string, value: string) => Promise<void>;
   onPreviewFile?: (path: string, name: string) => void;
   reportError: (message: string) => void;
-  models?: ModelOption[];
-  onModelChange?: (model: string) => void;
-  onThinkingLevelChange?: (level: ThinkingLevel) => void;
-  onOpenSettings?: () => void;
 }) {
   const empty = s.messages.length === 0;
   const composerStatus = s.status === 'idle' && isResearchRunning(s) ? 'waiting' : s.status;
@@ -239,8 +229,6 @@ export function Conversation({
     observer.observe(composerArea.current);
     return () => observer.disconnect();
   }, [s.id, empty]);
-  const [questionText, setQuestionText] = useState('');
-  const [answering, setAnswering] = useState(false);
   const [suggestion, setSuggestion] = useState<{ text: string; key: number }>();
   const [quote, setQuote] = useState<MessageQuote>();
   const [quotes, setQuotes] = useState<MessageQuote[]>([]);
@@ -262,18 +250,6 @@ export function Conversation({
       behavior: 'instant',
     });
   }, [messageJump, scrollRef, stopScroll]);
-  async function answer(value: string) {
-    if (!s.question || !value.trim()) return;
-    setAnswering(true);
-    try {
-      await onAnswer(s.question.id, value);
-      setQuestionText('');
-    } catch (error) {
-      reportError((error as Error).message);
-    } finally {
-      setAnswering(false);
-    }
-  }
   const retries = new Map<string, ChatMessage>();
   for (const message of s.messages) if (message.retryOf) retries.set(message.retryOf, message);
   const toolView = (message: ChatMessage): ChatMessage => {
@@ -290,13 +266,18 @@ export function Conversation({
   };
   const composer = (
     <div ref={composerArea} className="conversation-composer">
-      {checklistState && (
+      {(checklistState || s.question) && (
         <ChecklistDock
           key={s.id}
           sessionId={s.id}
-          text={checklistState.text}
-          prevText={checklistState.prevText}
+          text={checklistState?.text}
+          prevText={checklistState?.prevText}
           controlState={s.workflow.control?.state}
+          question={s.question}
+          onAnswer={async (value) => {
+            if (!s.question) return;
+            await onAnswer(s.question.id, value);
+          }}
         />
       )}
       <Composer
@@ -328,12 +309,6 @@ export function Conversation({
         onStop={onStop}
         onUpload={onUpload}
         reportError={reportError}
-        models={models}
-        currentModel={s.model}
-        thinkingLevel={s.thinkingLevel}
-        onModelChange={onModelChange}
-        onThinkingLevelChange={onThinkingLevelChange}
-        onOpenSettings={onOpenSettings}
         onPreviewFile={onPreviewFile}
       />
     </div>
@@ -485,6 +460,7 @@ export function Conversation({
                       renderMessage={(message) => (
                         <ToolStep
                           key={message.id}
+                          workspacePath={s.workspacePath}
                           message={toolView(message)}
                           onRetry={() => onRetry(message.id)}
                           onPreviewFile={onPreviewFile}
@@ -512,6 +488,7 @@ export function Conversation({
                         !(m.name === 'research_job' && m.args?.action === 'wait') && (
                           <ToolStep
                             key={m.id}
+                            workspacePath={s.workspacePath}
                             message={toolView(m)}
                             onRetry={() => onRetry(m.id)}
                             onPreviewFile={onPreviewFile}
@@ -610,37 +587,6 @@ export function Conversation({
                     <strong>研究已暂停</strong>
                     <span>{s.workflow.control.reason || s.notice || '可补充要求后继续。'}</span>
                   </div>
-                )}
-                {s.question && (
-                  <section className="question-panel" aria-label="需要你的决定">
-                    <strong>{s.question.title}</strong>
-                    {s.question.message && <p>{s.question.message}</p>}
-                    <div className="question-options">
-                      {s.question.options?.map((option) => (
-                        <button
-                          disabled={answering}
-                          key={option}
-                          onClick={() => void answer(option)}
-                        >
-                          {option}
-                        </button>
-                      ))}
-                    </div>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void answer(questionText);
-                      }}
-                    >
-                      <input
-                        aria-label="自定义回答"
-                        placeholder="也可以写下你的决定…"
-                        value={questionText}
-                        onChange={(e) => setQuestionText(e.target.value)}
-                      />
-                      <button disabled={answering || !questionText.trim()}>提交</button>
-                    </form>
-                  </section>
                 )}
               </div>
             </div>

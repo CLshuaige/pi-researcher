@@ -1,5 +1,6 @@
 import { Button } from './ui/Button';
 import { Tabs } from '@animate-ui/react/primitives/radix-ui/tabs';
+import { Slider } from '@animate-ui/react/primitives/radix-ui/slider';
 import { Switch } from './ui/animated';
 import { Checkbox, IntegerInput } from './ui/fields';
 import { SettingsDialog } from './SettingsDialog';
@@ -16,7 +17,10 @@ import {
   Lightbulb,
   FlaskConical,
   Play,
+  Cpu,
+  SlidersHorizontal,
 } from 'lucide-react';
+import type { ModelOption, ThinkingLevel } from '../../shared/types';
 
 /** Default research-modules config matching package/config/research-modules.json */
 const DEFAULT_RESEARCH_MODULES = {
@@ -54,16 +58,36 @@ const SOURCE_OPTIONS = [
   { id: 'dblp', label: 'DBLP' },
 ];
 
-type SettingsTab = 'literature' | 'hypothesis' | 'method' | 'experiment';
+type SettingsTab = 'model' | 'general' | 'literature' | 'hypothesis' | 'method' | 'experiment';
+
+const LEVELS: { id: ThinkingLevel; label: string }[] = [
+  { id: 'off', label: '关闭' },
+  { id: 'minimal', label: '极简' },
+  { id: 'low', label: '低' },
+  { id: 'medium', label: '中' },
+  { id: 'high', label: '高' },
+  { id: 'xhigh', label: '极高' },
+  { id: 'max', label: '最大' },
+];
 
 export function SettingsPanel({
   sessionId,
   onClose,
   reportError,
+  models = [],
+  currentModel = '',
+  thinkingLevel = 'medium',
+  onModelChange,
+  onThinkingLevelChange,
 }: {
   sessionId?: string;
   onClose: () => void;
   reportError: (msg: string) => void;
+  models?: ModelOption[];
+  currentModel?: string;
+  thinkingLevel?: ThinkingLevel;
+  onModelChange?: (model: string) => void;
+  onThinkingLevelChange?: (level: ThinkingLevel) => void;
 }) {
   const [config, setConfig] = useState<ResearchModulesConfig>(DEFAULT_RESEARCH_MODULES);
   const [allowWebSearch, setAllowWebSearch] = useState(true);
@@ -73,7 +97,8 @@ export function SettingsPanel({
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [keyErrors, setKeyErrors] = useState<Record<string, boolean>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [activeTab, setActiveTab] = useState<SettingsTab>('literature');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('model');
+  const [presentationEnabled, setPresentationEnabled] = useState(true);
 
   function applyConfig(value: Record<string, any>) {
     setConfig({
@@ -86,6 +111,7 @@ export function SettingsPanel({
     });
     setAllowWebSearch(value.allowWebSearch ?? true);
     setApiKeys(value.apiKeys ?? {});
+    setPresentationEnabled(value.presentation?.enabled ?? true);
   }
 
   // Load config: workspace > pending > default
@@ -118,6 +144,22 @@ export function SettingsPanel({
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const refreshMode = () => {
+      if (!sessionId) return;
+      void api
+        .getConfig(sessionId, 'research-modules')
+        .then(({ value }) => {
+          setConfig((old) => ({
+            ...old,
+            interactionMode: String(value.interactionMode ?? 'auto'),
+          }));
+        })
+        .catch((error) => reportError(error.message));
+    };
+    window.addEventListener('research-config-changed', refreshMode);
+    return () => window.removeEventListener('research-config-changed', refreshMode);
+  }, [sessionId, reportError]);
 
   const update = (updates: Partial<ResearchModulesConfig>) => {
     setConfig((old) => ({ ...old, ...updates }));
@@ -151,7 +193,13 @@ export function SettingsPanel({
     setSaving(true);
     try {
       const { interactionMode, ...moduleConfig } = config;
-      const payload = { ...moduleConfig, allowWebSearch, apiKeys };
+      const payload = {
+        ...moduleConfig,
+        interactionMode,
+        allowWebSearch,
+        apiKeys,
+        presentation: { enabled: presentationEnabled },
+      };
       if (sessionId) {
         await api.patchConfig(sessionId, 'research-modules', payload);
       } else {
@@ -192,6 +240,8 @@ export function SettingsPanel({
     );
 
   const tabs: { id: SettingsTab; label: string; icon: typeof BookOpen }[] = [
+    { id: 'model', label: '模型配置', icon: Cpu },
+    { id: 'general', label: '通用配置', icon: SlidersHorizontal },
     { id: 'literature', label: '文献调研', icon: BookOpen },
     { id: 'hypothesis', label: '假设构建', icon: Lightbulb },
     { id: 'method', label: '方法设计', icon: FlaskConical },
@@ -231,6 +281,158 @@ export function SettingsPanel({
           <Tabs.Content value={activeTab} asChild>
             <div className="settings-content">
               <div className="settings-form">
+                {/* ── 模型配置 tab ─────────────────────────────────── */}
+                {activeTab === 'model' && (
+                  <>
+                    <div className="form-row vertical">
+                      <div className="form-label-group">
+                        <Cpu size={15} className="form-icon" />
+                        <div>
+                          <span className="form-label">模型选择</span>
+                        </div>
+                      </div>
+                      <label className="model-provider-select">
+                        模型供应商
+                        <select
+                          aria-label="模型供应商"
+                          value={currentModel.split('/')[0] || ''}
+                          onChange={(event) => {
+                            const model = models.find(
+                              (model) => model.provider === event.target.value,
+                            );
+                            if (model) onModelChange?.(`${model.provider}/${model.id}`);
+                          }}
+                        >
+                          {[...new Set(models.map((model) => model.provider))].map((provider) => (
+                            <option key={provider} value={provider}>
+                              {provider}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="model-select-list">
+                        {models
+                          .filter(
+                            (model) =>
+                              !currentModel || model.provider === currentModel.split('/')[0],
+                          )
+                          .map((m) => {
+                            const id = `${m.provider}/${m.id}`;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className={`model-select-item${id === currentModel ? ' active' : ''}`}
+                                onClick={() => onModelChange?.(id)}
+                              >
+                                <span className="model-select-name">{m.name}</span>
+                                <span className="model-select-provider">{m.provider}</span>
+                                {m.reasoning && <span className="model-badge">推理</span>}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                    <div className="form-row vertical">
+                      <div className="form-label-group">
+                        <SlidersHorizontal size={15} className="form-icon" />
+                        <div>
+                          <span className="form-label">思考强度</span>
+                        </div>
+                      </div>
+                      <div className="thinking-level-control">
+                        <div className="thinking-level-header">
+                          <span>强度</span>
+                          <span className="thinking-level-value">
+                            {LEVELS.find((l) => l.id === thinkingLevel)?.label || thinkingLevel}
+                          </span>
+                        </div>
+                        <Slider.Root
+                          className="ui-slider"
+                          min={0}
+                          max={LEVELS.length - 1}
+                          step={1}
+                          value={[
+                            Math.max(
+                              0,
+                              LEVELS.findIndex((level) => level.id === thinkingLevel),
+                            ),
+                          ]}
+                          onValueChange={(value) => {
+                            const level = LEVELS[value[0]];
+                            if (level) onThinkingLevelChange?.(level.id);
+                          }}
+                        >
+                          <Slider.Track className="ui-slider-track">
+                            <Slider.Range className="ui-slider-range" />
+                          </Slider.Track>
+                          <Slider.Thumb
+                            className="ui-slider-thumb"
+                            aria-label="思考强度"
+                            aria-valuetext={
+                              LEVELS.find((level) => level.id === thinkingLevel)?.label
+                            }
+                          />
+                        </Slider.Root>
+                        <div className="thinking-level-labels">
+                          {LEVELS.map((level) => (
+                            <span
+                              key={level.id}
+                              className={`thinking-level-tick${level.id === thinkingLevel ? ' active' : ''}`}
+                            >
+                              {level.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ── 通用配置 tab ─────────────────────────────────── */}
+                {activeTab === 'general' && (
+                  <>
+                    <div className="form-row">
+                      <div className="form-label-group">
+                        <Play size={15} className="form-icon" />
+                        <div>
+                          <span className="form-label">自动推进研究</span>
+                          <p className="form-hint">
+                            关闭后，重要问题由你选择，每个阶段验收后点击“下一步”继续
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        label="自动推进研究"
+                        checked={config.interactionMode === 'auto'}
+                        onCheckedChange={(checked) =>
+                          update({ interactionMode: checked ? 'auto' : 'review' })
+                        }
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div className="form-label-group">
+                        <SlidersHorizontal size={15} className="form-icon" />
+                        <div>
+                          <span className="form-label">开启研究节点画板</span>
+                          <p className="form-hint">
+                            开启后，右侧面板将使用 Presentation
+                            模块生成可视化展板；关闭则仅显示文本摘要
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        label="开启研究节点画板"
+                        checked={presentationEnabled}
+                        onCheckedChange={(checked) => {
+                          setPresentationEnabled(checked);
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+
                 {/* ── 文献调研 tab ─────────────────────────────────── */}
                 {activeTab === 'literature' && (
                   <>
