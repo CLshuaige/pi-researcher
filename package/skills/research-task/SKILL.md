@@ -7,7 +7,7 @@ description: 在 Pi 主会话中细化科研目标、澄清影响方向的歧义
 
 把用户想法细化为可以开始探索的研究任务。保留探索性与未知项，只补充下一步所需的信息。
 
-> **流程要求**：以最新检查点或工具结果中的 Checklist 状态为准，缺少状态时先 `research_checklist(action: "read")`。仅在尚未初始化时调用 `init`；已初始化但没有模块时调用 `plan`；当前模块为 `pending` 时先 `start`，已启动则继续未完成工作，不重复初始化或重建计划。规划和启动前允许 `read`/`grep`/`find`/`ls` 与 `ask_user` 做必要的只读检查和澄清；命令执行、产物写入和委派仍须先规划并启动当前模块。Checklist 只绑定阶段技能：`research-task`、`research-literature`、`research-hypothesis`、`research-method`、`research-experiment`、`research-report`、`research-review`；`-single` 等内部执行技能不填入阶段计划。
+> **流程要求**：以最新检查点或工具结果中的 Checklist 状态为准，缺少状态时先 `research_checklist(action: "read")`。仅在尚未初始化时调用 `init`；已初始化但没有模块时调用 `research_plan(expectedRevision, reason, modules)` 创建初始清单；已有模块后的调整仍使用 `research_checklist(action: "plan", ...)`；当前模块为 `pending` 时先 `start`，已启动则继续未完成工作，不重复初始化或重建计划。规划和启动前允许 `read`/`grep`/`find`/`ls` 与 `ask_user` 做必要的只读检查和澄清；命令执行、产物写入和委派仍须先规划并启动当前模块。Checklist 只绑定阶段技能：`research-task`、`research-literature`、`research-hypothesis`、`research-method`、`research-experiment`、`research-report`、`research-review`；`-single` 等内部执行技能不填入阶段计划。
 
 产物正文默认跟随用户的交互语言，不以输入材料的语言决定；用户明确指定语言时遵从其要求。论文标题、代码标识符及原始记录保留原文。
 

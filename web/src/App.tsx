@@ -728,10 +728,12 @@ export default function App() {
           models={models}
           currentModel={session?.model}
           thinkingLevel={session?.thinkingLevel}
-          onModelChange={(model) => session && void act(() => api.setModel(session.id, model))}
-          onThinkingLevelChange={(level) =>
-            session && void act(() => api.setThinkingLevel(session.id, level))
-          }
+          onModelChange={async (model) => {
+            if (session) accept(await api.setModel(session.id, model));
+          }}
+          onThinkingLevelChange={async (level) => {
+            if (session) accept(await api.setThinkingLevel(session.id, level));
+          }}
         />
       )}
       <Notification message={error} onClose={() => setError('')} />

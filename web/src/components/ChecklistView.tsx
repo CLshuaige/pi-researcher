@@ -80,7 +80,7 @@ export function getLatestChecklistState(
   const snapshots = messages.flatMap((message, index) => {
     if (
       message.role !== 'tool' ||
-      message.name !== 'research_checklist' ||
+      !['research_checklist', 'research_plan'].includes(message.name || '') ||
       !isChecklistJson(message.text)
     )
       return [];
@@ -233,12 +233,9 @@ export function ChecklistView({ text, prevText, controlState }: { text: string; 
             {modules.map((m, i) => {
               const isCurrentRunning = m.id === currentRunningId && m.status === 'running';
               const pausedOrStopped = isCurrentRunning && (effectiveControlState === 'paused' || effectiveControlState === 'stopped');
-              const waiting = isCurrentRunning && effectiveControlState === 'waiting';
               const meta = pausedOrStopped
                 ? { ...statusMeta(m.status), label: effectiveControlState === 'paused' ? '已暂停' : '已停止', icon: <Pause size={12} /> }
-                : waiting
-                  ? { ...statusMeta(m.status), label: '等待中', icon: <Circle size={11} /> }
-                  : statusMeta(m.status);
+                : statusMeta(m.status);
               const isCurrent = m.id === currentId;
               const isNew = prevText ? !prevModules.has(m.id) : false;
               const isChanged = prevText ? prevModules.get(m.id) !== moduleSignature(m) : false;
@@ -509,7 +506,7 @@ export function ChecklistDock({
   const icon =
     state === 'paused' || state === 'stopped' ? (
       <Pause size={12} />
-    ) : state === 'waiting' ? (
+    ) : state === 'waiting' && current?.status !== 'running' ? (
       <Circle size={14} />
     ) : (
       statusMeta(current?.status ?? (finished ? 'completed' : allTerminal ? 'skipped' : 'pending'))
@@ -518,8 +515,10 @@ export function ChecklistDock({
   const stateLabel =
     state === 'paused'
       ? '已暂停'
-      : state === 'waiting'
-        ? '等待中'
+      : state === 'waiting' && current?.status === 'running'
+        ? '进行中'
+        : state === 'waiting'
+          ? '等待结果'
         : state === 'stopped'
           ? '已停止'
           : current?.status === 'awaiting_acceptance'

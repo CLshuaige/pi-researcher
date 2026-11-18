@@ -31,6 +31,23 @@
           "samplingParams": {
             "temperature": 0.6
           }
+        },
+        {
+          "id": "Qwen3.8-Max",
+          "name": "BLSC Qwen3.8-Max"
+        },
+        {
+          "id": "DeepSeek-V4.1-Flash",
+          "name": "BLSC DeepSeek-V4.1-Flash"
+        },
+        {
+          "id": "Kimi-K3.1-Pro-HighSpeed",
+          "name": "BLSC Kimi-K3.1-Pro-HighSpeed",
+          "reasoning": true,
+          "compat": {
+            "thinkingFormat": "deepseek",
+            "supportsReasoningEffort": false
+          }
         }
       ]
     }

@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import {
   createAgentSession,
   DefaultResourceLoader,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   type AgentSession,
@@ -30,6 +31,7 @@ type Live = {
   assistantId?: string;
   users: Map<string, string>;
   retry?: { targetId: string; executionId?: string };
+  autoRetry?: { error: string; notice: string };
 };
 
 export function extractLinks(text: string) {
@@ -590,10 +592,23 @@ export class PiBridge {
         void this.refresh(s).catch(() => {});
         break;
       case 'auto_retry_start':
-        s.notice = `连接暂时中断，Pi 正在重试（${event.attempt}/${event.maxAttempts}）`;
+        live.autoRetry = {
+          error: event.errorMessage,
+          notice: `连接暂时中断，Pi 正在重试（${event.attempt}/${event.maxAttempts}）`,
+        };
+        s.notice = live.autoRetry.notice;
         break;
       case 'auto_retry_end':
-        if (event.success) delete s.notice;
+        if (live.autoRetry) {
+          const retry = live.autoRetry;
+          if (s.notice === retry.notice) delete s.notice;
+          if (event.success || event.finalError === 'Retry cancelled') {
+            if (s.error === retry.error) delete s.error;
+          } else if (event.finalError && (!s.error || s.error === retry.error)) {
+            s.error = event.finalError;
+          }
+          delete live.autoRetry;
+        }
         break;
       case 'compaction_start':
         s.notice = '正在整理会话上下文，研究会继续保留。';
@@ -772,13 +787,22 @@ export class PiBridge {
     }
   }
   async setModel(s: StoredSession, model: string) {
-    const live = await this.ensure(s);
+    // A draft moves into workspace on first send; do not bind an SDK session to its temporary cwd.
+    const live = s.phase === 'draft' ? undefined : await this.ensure(s);
+    const agentDir = resolve(process.env.PI_CODING_AGENT_DIR || join(this.root, '.pi/agent'));
+    const runtime =
+      live?.session.modelRuntime ||
+      (await ModelRuntime.create({
+        modelsPath: join(agentDir, 'models.json'),
+        authPath: join(agentDir, 'auth.json'),
+      }));
     const slash = model.indexOf('/');
-    const selected = live.session.modelRuntime.getModel(
-      model.slice(0, slash),
-      model.slice(slash + 1),
-    );
+    const selected = runtime.getModel(model.slice(0, slash), model.slice(slash + 1));
     if (!selected) throw new Error('模型不存在：' + model);
+    if (!live) {
+      if (!(await runtime.checkAuth(selected.provider))) throw new Error(`No API key for ${model}`);
+      return;
+    }
     await live.session.setModel(selected);
     live.session.setThinkingLevel(s.thinkingLevel || 'medium');
   }

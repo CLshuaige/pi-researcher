@@ -36,13 +36,20 @@ const ChecklistActionParameters = Type.Object({
 // Keep the provider schema flat: Moonshot rejects object + root anyOf.
 // Conditional acceptance requirements are enforced by the controller before execution.
 export const ChecklistParameters = Type.Object(ChecklistActionParameters.properties, { additionalProperties: false });
+export const InitialPlanParameters = Type.Object({
+  title: ChecklistActionParameters.properties.title,
+  expectedRevision: Type.Integer({ minimum: 1, description: 'Use the revision from the latest checkpoint. On conflict read again; never guess.' }),
+  reason: Type.String({ minLength: 1, description: 'Why this initial plan fits the research objective.' }),
+  modules: Type.Array(Definition, { minItems: 1, description: 'Ordered nonempty initial plan. Each module needs id, objective, skills and criteria; dependencies defaults to [].' }),
+}, { additionalProperties: false });
+export type InitialPlanArguments = Static<typeof InitialPlanParameters>;
 export type ChecklistArguments = Static<typeof ChecklistActionParameters>;
 export const checklistGuide = `research_checklist protocol. Skills are instruction files, not callable tools. Never edit checklist.json.
 For each call, provide title when possible: a Chinese action phrase of at most 12 characters, e.g. "规划研究阶段" or "核验训练产物". title is optional display metadata; omit completion/failure claims. The program determines execution status and uses a fixed action label when title is absent. reason remains the mutation rationale/audit note or instruction resolution, never a title or acceptance explanation.
 Use ONE mutation per tool result, not a batch. In examples replace expectedRevision:1 with the revision in the latest result/checkpoint. On conflict read again; never guess or use repair for conflicts.
 - Help: {"action":"help"}; inspect state: {"action":"read"}.
 - Initialize only when initialized=false: {"action":"init","objective":"Research goal"}. Repeated init returns the existing state without changing its objective, revision, modules or versions. Follow the latest checkpoint/tool result; do not restart initialization when resuming work. Use resolve to change the objective.
-- Plan ordered definitions: {"action":"plan","expectedRevision":1,"reason":"Initial plan","modules":[{"id":"M1","objective":"Inspect evidence","skills":["research-literature"],"criteria":["Cite original sources"],"dependencies":[]}]}.
+- Plan ordered definitions with research_plan: {"expectedRevision":1,"reason":"Initial plan","modules":[{"id":"M1","objective":"Inspect evidence","skills":["research-literature"],"criteria":["Cite original sources"],"dependencies":[]}]}. For later replanning use research_checklist(action="plan").
   Required per module: id, objective, skills, criteria. skills accepts only research-task, research-literature, research-hypothesis, research-method, research-experiment, research-report and research-review; internal -single skills are not stages. dependencies defaults to []. Runtime fills pending status and empty evidence/acceptance. Preserve existing IDs. Unchanged definitions preserve progress; changed definitions reopen this and following modules. Do not change status through plan.
 - Completed-stage followup: {"action":"followup","expectedRevision":1,"reason":"User requested a method amendment","instructionId":"I-...","moduleId":"M3","kind":"revision","objective":"Amend only the method document; do not run experiments","criteria":["Deliver and verify the requested amendments"],"impact":"Mark dependent experiments/report for review; do not rerun them"}.
   The harness creates a new ordered module and version outputDir, preserving original modules and artifacts. kind=analysis defaults to no specialist skills and does not replace the accepted version. kind=revision inherits the target's skills unless explicitly supplied. Read the resulting currentModule.id and followup.outputDir; start and accept that new ID. Never write old accepted paths. Bound instructions resolve automatically only after acceptance. Prefer small amendments and existing evidence over repeating a whole workflow. affectedModules=[] requires impact explaining why downstream results remain applicable. Historical completed results are retained; needsReview is not authorization to rerun them.
@@ -197,25 +204,27 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       } };
     }
     if (!c) nextAction = 'init';
+    if (attempted?.action === 'plan' && c && attempted.expectedRevision !== c.revision) nextAction = 'read';
     const errorMessage = (error instanceof Error ? error.message : String(error)).replace(/^Error: /, '');
     if (c && attempted?.action === 'plan' && c.modules.length === 0 &&
-      (!attempted.modules || attempted.modules.length === 0) && errorMessage.startsWith('plan requires modules:')) {
+      /^(plan requires modules:|Invalid|Validation failed|Use research_plan)/.test(errorMessage) &&
+      attempted.expectedRevision === c.revision) {
       initialPlanRecovery = true;
-      nextAction = 'plan';
+      nextAction = 'research_plan';
       const retryTemplate = {
-        action: 'plan', expectedRevision: c.revision, reason: attempted.reason!,
-        modules: [{ id: 'M1', objective: '', skills: [], criteria: [], dependencies: [] }],
+        expectedRevision: c.revision, reason: attempted.reason!,
+        modules: attempted.modules?.length ? attempted.modules : [{ id: 'M1', objective: '', skills: [], criteria: [], dependencies: [] }],
       };
       planningRequirements = {
         objective: c.objective,
-        requiredFields: ['action', 'expectedRevision', 'reason', 'modules'],
-        missingFields: ['modules'], moduleRequiredFields: ['id', 'objective', 'skills', 'criteria'],
+        requiredFields: ['expectedRevision', 'reason', 'modules'],
+        missingFields: attempted.modules?.length ? [] : ['modules'], moduleRequiredFields: ['id', 'objective', 'skills', 'criteria'],
         allowedSkills: ModuleSchema.properties.skills.items.anyOf.map(skill => skill.const),
         retryTemplate, templateNeedsCompletion: true,
-        instruction: 'Use the actual research request to choose the number and order of modules, fill every module objective and nonempty criteria array, and choose skills from allowedSkills and appropriate dependencies. Internal -single skills cannot be bound to Checklist stages. Changing reason/title does not plan research. Empty objective or acceptance criteria cannot pass validation. Complete the template, then submit through research_checklist; do not initialize again. Recovery never submits the plan automatically.',
+        instruction: 'Use the actual research request to choose the number and order of modules, fill every module objective and nonempty criteria array, and choose skills from allowedSkills and appropriate dependencies. Internal -single skills cannot be bound to Checklist stages. Changing reason/title does not plan research. Empty objective or acceptance criteria cannot pass validation. Complete the template, then submit through research_plan; do not initialize again. Recovery never submits the plan automatically.',
       };
     }
-    if (attempted?.action === 'plan' && c) {
+    if (attempted?.action === 'plan' && c && c.modules.length > 0) {
       planningRequirements ??= {
         requiredFields: ['action', 'expectedRevision', 'reason', 'modules'],
         missingFields: !Array.isArray(attempted.modules) || !attempted.modules.length ? ['modules'] : [],
@@ -264,7 +273,7 @@ export function checklistRecovery(store: ChecklistStore, error: unknown, attempt
       };
     }
   } catch { nextAction = 'repair'; }
-  return { error: String(error), recovery: { required: true, nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: initialPlanRecovery ? 'Complete planningRequirements.retryTemplate using the research objective and submit it with action: plan. Do not change checklist JSON directly; recovery does not submit the plan for you.' : 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
+  return { error: String(error), recovery: { required: true, nextAction, currentRevision, currentModuleId, ...(planningRequirements ? { planningRequirements } : {}), ...(resolveRequirements ? { resolveRequirements } : {}), ...(acceptanceRequirements ? { acceptanceRequirements } : {}), instruction: initialPlanRecovery ? 'Complete planningRequirements.retryTemplate using the research objective and submit it with research_plan. Do not change checklist JSON directly; recovery does not submit the plan for you.' : 'Read current state, correct arguments using action: help, then retry once. Do not edit JSON directly.' } };
 }
 
 function isSatisfiedStartRecovery(store: ChecklistStore, current: Checklist, error: unknown, attempted?: ChecklistArguments): boolean {

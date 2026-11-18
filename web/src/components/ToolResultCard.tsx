@@ -73,7 +73,7 @@ export function ToolResultCard({
         <div className="tool-result-content">{children}</div>
         {message.args &&
           Object.keys(message.args).length > 0 &&
-          message.name !== 'research_checklist' && (
+          !['research_checklist', 'research_plan'].includes(message.name || '') && (
             <Disclosure className="tool-parameters" title="调用参数" defaultOpen={false}>
               <ToolCode>{JSON.stringify(message.args, null, 2)}</ToolCode>
             </Disclosure>

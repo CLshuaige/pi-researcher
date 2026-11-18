@@ -86,14 +86,16 @@ export function SettingsPanel({
   models?: ModelOption[];
   currentModel?: string;
   thinkingLevel?: ThinkingLevel;
-  onModelChange?: (model: string) => void;
-  onThinkingLevelChange?: (level: ThinkingLevel) => void;
+  onModelChange?: (model: string) => Promise<void>;
+  onThinkingLevelChange?: (level: ThinkingLevel) => Promise<void>;
 }) {
   const [config, setConfig] = useState<ResearchModulesConfig>(DEFAULT_RESEARCH_MODULES);
   const [allowWebSearch, setAllowWebSearch] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(currentModel);
+  const [selectedThinkingLevel, setSelectedThinkingLevel] = useState(thinkingLevel);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [keyErrors, setKeyErrors] = useState<Record<string, boolean>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -175,8 +177,12 @@ export function SettingsPanel({
   };
 
   const handleSave = async () => {
+    const configDirty = dirty;
+    const modelDirty = selectedModel !== currentModel;
+    const thinkingDirty = selectedThinkingLevel !== thinkingLevel;
+    if (!configDirty && !modelDirty && !thinkingDirty) return;
     // Validation: web search off + no enhanced sources = cannot search
-    if (!allowWebSearch && config.literature.sources.length === 0) {
+    if (configDirty && !allowWebSearch && config.literature.sources.length === 0) {
       reportError('无法搜索：请开启网页搜索或至少勾选一个增强学术源');
       return;
     }
@@ -185,27 +191,35 @@ export function SettingsPanel({
       config.method.max_debate_iterations,
       config.experiment.max_optimization_iterations,
     ];
-    if (rounds.some((value) => !Number.isInteger(value) || value < 1 || value > 20)) {
+    if (
+      configDirty &&
+      rounds.some((value) => !Number.isInteger(value) || value < 1 || value > 20)
+    ) {
       reportError('轮数必须是 1–20 的整数');
       return;
     }
     setKeyErrors({});
     setSaving(true);
     try {
-      const { interactionMode, ...moduleConfig } = config;
-      const payload = {
-        ...moduleConfig,
-        interactionMode,
-        allowWebSearch,
-        apiKeys,
-        presentation: { enabled: presentationEnabled },
-      };
-      if (sessionId) {
-        await api.patchConfig(sessionId, 'research-modules', payload);
-      } else {
-        localStorage.setItem(PENDING_KEY, JSON.stringify({ ...payload, interactionMode }));
+      if (configDirty) {
+        const { interactionMode, ...moduleConfig } = config;
+        const payload = {
+          ...moduleConfig,
+          interactionMode,
+          allowWebSearch,
+          apiKeys,
+          presentation: { enabled: presentationEnabled },
+        };
+        if (sessionId) {
+          await api.patchConfig(sessionId, 'research-modules', payload);
+        } else {
+          localStorage.setItem(PENDING_KEY, JSON.stringify({ ...payload, interactionMode }));
+        }
+        window.dispatchEvent(new Event('research-config-changed'));
+        setDirty(false);
       }
-      window.dispatchEvent(new Event('research-config-changed'));
+      if (modelDirty) await onModelChange?.(selectedModel);
+      if (thinkingDirty) await onThinkingLevelChange?.(selectedThinkingLevel);
       setDirty(false);
       onClose();
     } catch (e) {
@@ -232,7 +246,7 @@ export function SettingsPanel({
 
   if (loading)
     return (
-      <SettingsDialog title="参数配置" onClose={onClose}>
+      <SettingsDialog title="参数配置" onClose={saving ? () => {} : onClose}>
         <div className="settings-loading">
           <LoaderCircle size={20} className="spin" />
         </div>
@@ -249,7 +263,7 @@ export function SettingsPanel({
   ];
 
   return (
-    <SettingsDialog title="参数配置" onClose={onClose}>
+    <SettingsDialog title="参数配置" onClose={saving ? () => {} : onClose}>
       <Tabs.Root
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as SettingsTab)}
@@ -295,12 +309,13 @@ export function SettingsPanel({
                         模型供应商
                         <select
                           aria-label="模型供应商"
-                          value={currentModel.split('/')[0] || ''}
+                          disabled={saving}
+                          value={selectedModel.split('/')[0] || ''}
                           onChange={(event) => {
                             const model = models.find(
                               (model) => model.provider === event.target.value,
                             );
-                            if (model) onModelChange?.(`${model.provider}/${model.id}`);
+                            if (model) setSelectedModel(`${model.provider}/${model.id}`);
                           }}
                         >
                           {[...new Set(models.map((model) => model.provider))].map((provider) => (
@@ -314,7 +329,7 @@ export function SettingsPanel({
                         {models
                           .filter(
                             (model) =>
-                              !currentModel || model.provider === currentModel.split('/')[0],
+                              !selectedModel || model.provider === selectedModel.split('/')[0],
                           )
                           .map((m) => {
                             const id = `${m.provider}/${m.id}`;
@@ -322,8 +337,9 @@ export function SettingsPanel({
                               <button
                                 key={id}
                                 type="button"
-                                className={`model-select-item${id === currentModel ? ' active' : ''}`}
-                                onClick={() => onModelChange?.(id)}
+                                className={`model-select-item${id === selectedModel ? ' active' : ''}`}
+                                disabled={saving}
+                                onClick={() => setSelectedModel(id)}
                               >
                                 <span className="model-select-name">{m.name}</span>
                                 <span className="model-select-provider">{m.provider}</span>
@@ -344,23 +360,25 @@ export function SettingsPanel({
                         <div className="thinking-level-header">
                           <span>强度</span>
                           <span className="thinking-level-value">
-                            {LEVELS.find((l) => l.id === thinkingLevel)?.label || thinkingLevel}
+                            {LEVELS.find((l) => l.id === selectedThinkingLevel)?.label ||
+                              selectedThinkingLevel}
                           </span>
                         </div>
                         <Slider.Root
                           className="ui-slider"
+                          disabled={saving}
                           min={0}
                           max={LEVELS.length - 1}
                           step={1}
                           value={[
                             Math.max(
                               0,
-                              LEVELS.findIndex((level) => level.id === thinkingLevel),
+                              LEVELS.findIndex((level) => level.id === selectedThinkingLevel),
                             ),
                           ]}
                           onValueChange={(value) => {
                             const level = LEVELS[value[0]];
-                            if (level) onThinkingLevelChange?.(level.id);
+                            if (level) setSelectedThinkingLevel(level.id);
                           }}
                         >
                           <Slider.Track className="ui-slider-track">
@@ -370,7 +388,7 @@ export function SettingsPanel({
                             className="ui-slider-thumb"
                             aria-label="思考强度"
                             aria-valuetext={
-                              LEVELS.find((level) => level.id === thinkingLevel)?.label
+                              LEVELS.find((level) => level.id === selectedThinkingLevel)?.label
                             }
                           />
                         </Slider.Root>
@@ -378,7 +396,7 @@ export function SettingsPanel({
                           {LEVELS.map((level) => (
                             <span
                               key={level.id}
-                              className={`thinking-level-tick${level.id === thinkingLevel ? ' active' : ''}`}
+                              className={`thinking-level-tick${level.id === selectedThinkingLevel ? ' active' : ''}`}
                             >
                               {level.label}
                             </span>
@@ -649,7 +667,7 @@ export function SettingsPanel({
 
               {/* Footer actions */}
               <div className="settings-actions">
-                <Button className="settings-btn secondary" onClick={onClose}>
+                <Button className="settings-btn secondary" onClick={onClose} disabled={saving}>
                   取消
                 </Button>
                 <Button className="settings-btn secondary" onClick={handleReset} disabled={saving}>
@@ -658,7 +676,12 @@ export function SettingsPanel({
                 <Button
                   className="settings-btn primary"
                   onClick={() => void handleSave()}
-                  disabled={!dirty || saving}
+                  disabled={
+                    (!dirty &&
+                      selectedModel === currentModel &&
+                      selectedThinkingLevel === thinkingLevel) ||
+                    saving
+                  }
                 >
                   {saving ? '保存中…' : '保存'}
                 </Button>

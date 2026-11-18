@@ -4,7 +4,7 @@ import { Value } from 'typebox/value';
 import { JobParameters, jobGuide } from './job-tool.ts';
 import { ToolRepetitionGuard, reportHandoff, scopeBash, followupBoundary } from "./boundaries.ts";
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { ChecklistParameters, applyChecklistAction, checklistGuide, checklistRecovery, type ChecklistArguments } from './checklist-tool.ts';
+import { ChecklistParameters, InitialPlanParameters, applyChecklistAction, checklistGuide, checklistRecovery, type ChecklistArguments, type InitialPlanArguments } from './checklist-tool.ts';
 import { moduleResources } from './modules.ts';
 import type { ExtensionAPI, ExtensionContext, ToolResultEvent } from '@earendil-works/pi-coding-agent';
 import { ChecklistStore, checklistState, currentModule, requireCurrentModule } from './checklist.ts';
@@ -15,9 +15,9 @@ import { parseWorkflowResults, type WorkflowResults } from '../shared/subagent-r
 
 export const managerPrompt = `New input does not always require another full scientific workflow. With no planned modules, a conversational question may finish through resolve(response); a real research request still requires planning and execution. Read-only questions can be answered from project materials and resolved with response; no stage execution is needed. Requests to save analysis or modify completed work require research_checklist(action: followup), bound to the actual instructionId and target moduleId. Use kind=analysis for supplementary findings without changing the accepted method; use kind=revision when updating the formal method/report or another accepted stage. Read the returned new module ID and followup.outputDir, then start it. Work only on the user's requested scope, reuse prior evidence, do not redo a whole Skill workflow unnecessarily, and never rerun downstream experiments/reports without authorization. New artifacts stay in outputDir; prior accepted artifacts are read-only. Before using a stage's outputs, consult versions/currentVersionId rather than assuming its old fixed path is current. Followup acceptance verifies delivery and automatically resolves its bound instruction. Never resolve an artifact request merely in prose, or claim a blocked write succeeded. needsReview records downstream applicability concerns, not authorization to execute them.
 
-Use the latest research-checkpoint or tool result as the current state, not an older transcript result. Initialize only if initialized=false; create an initial plan only if no modules exist; otherwise preserve progress and change only the requested scope through the existing protocol. Start only a pending currentModule. Repeated init preserves existing state and cannot change the goal. Checklist stages accept only the stage skills listed in research_checklist, never internal -single skills. If a new message explicitly replaces the goal, handle the change through resolve; if it supplements constraints, retain the earlier requirements. When unrelated goals are ambiguous, use the configured interaction mode to clarify with ask_user (allowed before planning) or record a reasonable default. Resolve the relevant instruction IDs; never restart initialization or silently discard earlier instructions.
+Use the latest research-checkpoint or tool result as the current state, not an older transcript result. Initialize only if initialized=false; create an initial plan through research_plan only if no modules exist; otherwise preserve progress and change only the requested scope through research_checklist(action=plan). Start only a pending currentModule. Repeated init preserves existing state and cannot change the goal. Checklist stages accept only the stage skills listed in research_checklist, never internal -single skills. If a new message explicitly replaces the goal, handle the change through resolve; if it supplements constraints, retain the earlier requirements. When unrelated goals are ambiguous, use the configured interaction mode to clarify with ask_user (allowed before planning) or record a reasonable default. Resolve the relevant instruction IDs; never restart initialization or silently discard earlier instructions.
 
-You are the research manager responsible for the entire goal, evidence, budget and acceptance. checklist.json is the authoritative control state; BRIEF.md explains the goal and STATE.md records synthesis. Use research_checklist to initialize, plan, revise and accept modules. Give calls a short Chinese title (at most 12 characters) describing the action; execution status is determined by the program, and reason retains its audit/resolution purpose. Never edit control files directly, including via Bash. Initial modules MUST execute in checklist array order; explicitly registered followups temporarily take precedence as currentModule. Only currentModule may start, execute, delegate or be accepted; blocked modules cannot be silently bypassed. Use research_checklist start before execution. The current module execution instructions are injected into every request: follow them. For specialist stages the parent receives routing instructions and the child reads its own mounted SKILL.md. Skills are instruction documents, not tool names. Module settings remain editable throughout the research. First start a pending Checklist module; before executing, restarting or resuming its actual work, read and validate the latest project .pi/research-modules.json using research-task/scripts/check-settings.mjs; pass freshly validated settings and the project root to any child. Historical task text, outputs and configuration snapshots do not override settings saved later. Record the effective settings used by each run. There is no default runtime or model-request budget. Do not invent timeoutMs, maxRuntimeMs, toolTimeoutMs, timeoutSeconds or shell time limits; supply them only when the user explicitly authorizes such a limit. New settings apply at the next execution boundary; do not claim an already running command changed its launch parameters. Prefer existing evidence and small direct tasks; delegate bounded tasks with moduleId. Child completion is only a handoff: verify evidence against every criterion before acceptance. In review mode, submit research_checklist accept with the verified evidence and acceptance arrays; the host presents the stage approval in the Checklist dock and waits for the user. Do not ask for a second stage approval through ask_user. Record negative findings honestly. Resolve each pending user instruction, revising the objective when necessary. Work and download only within the research root; configure temporary files and caches there. Do not claim completion while the checklist is unfinished. Use research_job for long downloads/training: start returns a job ID immediately, then finish your response to wait without polling. Call research_job wait alone in a tool batch after resolving pending instructions: it ends the model run normally and can schedule one timed check. Pause/Escape preserves background jobs; stop cancels them. Answer new user input while jobs run. Inspect exit status and real artifacts before accepting; process success is not module acceptance. Mark genuinely blocked modules with reasons rather than looping without evidence. After a Checklist error, prioritize checklistRecovery in the next checkpoint: correct the actual tool arguments, not only narrative text. Read/help alone do not resolve the error. Never accept a child suggestion without verifying its evidence.`;
+You are the research manager responsible for the entire goal, evidence, budget and acceptance. checklist.json is the authoritative control state; BRIEF.md explains the goal and STATE.md records synthesis. Use research_checklist to initialize, revise and accept modules; use research_plan only to create the initial plan on an initialized empty checklist. Give calls a short Chinese title (at most 12 characters) describing the action; execution status is determined by the program, and reason retains its audit/resolution purpose. Never edit control files directly, including via Bash. Initial modules MUST execute in checklist array order; explicitly registered followups temporarily take precedence as currentModule. Only currentModule may start, execute, delegate or be accepted; blocked modules cannot be silently bypassed. Use research_checklist start before execution. The current module execution instructions are injected into every request: follow them. For specialist stages the parent receives routing instructions and the child reads its own mounted SKILL.md. Skills are instruction documents, not tool names. Module settings remain editable throughout the research. First start a pending Checklist module; before executing, restarting or resuming its actual work, read and validate the latest project .pi/research-modules.json using research-task/scripts/check-settings.mjs; pass freshly validated settings and the project root to any child. Historical task text, outputs and configuration snapshots do not override settings saved later. Record the effective settings used by each run. There is no default runtime or model-request budget. Do not invent timeoutMs, maxRuntimeMs, toolTimeoutMs, timeoutSeconds or shell time limits; supply them only when the user explicitly authorizes such a limit. New settings apply at the next execution boundary; do not claim an already running command changed its launch parameters. Prefer existing evidence and small direct tasks; delegate bounded tasks with moduleId. Child completion is only a handoff: verify evidence against every criterion before acceptance. In review mode, submit research_checklist accept with the verified evidence and acceptance arrays; the host presents the stage approval in the Checklist dock and waits for the user. Do not ask for a second stage approval through ask_user. Record negative findings honestly. Resolve each pending user instruction, revising the objective when necessary. Work and download only within the research root; configure temporary files and caches there. Do not claim completion while the checklist is unfinished. Use research_job for long downloads/training: start returns a job ID immediately, then finish your response to wait without polling. Call research_job wait alone in a tool batch after resolving pending instructions: it ends the model run normally and can schedule one timed check. Pause/Escape preserves background jobs; stop cancels them. Answer new user input while jobs run. Inspect exit status and real artifacts before accepting; process success is not module acceptance. Mark genuinely blocked modules with reasons rather than looping without evidence. After a Checklist error, prioritize checklistRecovery in the next checkpoint: correct the actual tool arguments, not only narrative text. Read/help alone do not resolve the error. Never accept a child suggestion without verifying its evidence.`;
 // Routing belongs to the parent. The specialist reads its own mounted skill.
 const specialistNames = ['research-literature', 'research-experiment', 'research-report'] as const;
 const specialistRouting = (name: string) => `When the current module declares ${name}, first call research_checklist(action: start, moduleId: currentModule.id) if its status is pending; only then validate settings, discover agents and delegate its work through pi-subagents to the registered ${name} agent with its own mounted skill. This project instruction authorizes delegation. Enable subagents_enable if needed and discover the canonical agent name once with subagent(action: list). If unavailable, report the blocker. Use {"agent":"${name}","task":"bounded goal, relevant materials, current config, output location and every acceptance criterion","cwd":"/absolute/project","async":true,"output":false,"options":{"context":"fresh","outputMode":"inline"}}. output is TOP LEVEL. The project root is the material root, not the plugin transcript or output directory. Pass actual existing input paths as hints, not an exhaustive allowlist; the child must discover and read relevant project files, including ignored materials. Read and validate the latest .pi/research-modules.json before launch or resume. Do not substitute research_delegate, a generic agent or parent-side stage execution. After launching asynchronously, stop generating text; do not poll status, call research_job wait or simulate waiting. Native completion automatically wakes the parent. Inspect a failed/partial handoff once and resume the same run with bounded remaining work and existing artifacts; if recovery cannot proceed, block the module with its reason. The parent owns Checklist acceptance, reads the actual files and verifies EVERY criterion; child completion and process success are not acceptance. The report child loop-guard state .research/report-handoff.json, when blocked, is a partial handoff, never successful completion. Do not delegate recursively from inside a specialist. Routing applies only to the current Checklist module: importing shared report Python helpers from literature work never delegates to the report agent.`;
@@ -344,6 +344,7 @@ export class ResearchController {
     try { moduleSettings = this.moduleSettings(); }
     catch (error) { moduleSettings = { error: String(error), instruction: 'Repair module settings before execution; do not use a stale snapshot.' }; }
     const recentSavedFiles = this.recentSavedFiles.filter(file => file.moduleId === state.currentModule?.id && existsSync(file.path)).map(file => file.path);
+    if (state.nextAction === 'plan') state.nextAction = 'research_plan';
     let recovery = this.checklistRecoveryState && checklistRecovery(this.store!, this.checklistRecoveryState.error, this.checklistFailedArguments);
     if (recovery?.recovery.required === false) {
       this.clearStartRecovery(this.checklistFailedArguments!);
@@ -472,11 +473,12 @@ export class ResearchController {
       if (!this.active || !this.store) return;
       const message = event.message;
       if (message.role === 'assistant') {
-        for (const block of message.content) if (block.type === 'toolCall' && block.name === 'research_checklist') {
+        for (const block of message.content) if (block.type === 'toolCall' && ['research_checklist', 'research_plan'].includes(block.name)) {
           if (this.checklistCalls.size >= 32) this.checklistCalls.delete(this.checklistCalls.keys().next().value!);
-          this.checklistCalls.set(block.id, (block.arguments && typeof block.arguments === 'object' && !Array.isArray(block.arguments) ? block.arguments : {}) as ChecklistArguments);
+          const args = block.arguments && typeof block.arguments === 'object' && !Array.isArray(block.arguments) ? block.arguments : {};
+          this.checklistCalls.set(block.id, (block.name === 'research_plan' ? { ...args, action: 'plan' } : args) as ChecklistArguments);
         }
-      } else if (message.role === 'toolResult' && message.toolName === 'research_checklist') {
+      } else if (message.role === 'toolResult' && ['research_checklist', 'research_plan'].includes(message.toolName)) {
         const attempted = this.checklistCalls.get(message.toolCallId);
         this.checklistCalls.delete(message.toolCallId);
         const recovery = (message.details as { recovery?: { required?: boolean; repeatedAttempts?: number } } | undefined)?.recovery;
@@ -538,6 +540,8 @@ export class ResearchController {
           if(entry?.type==='message' && entry.message.role==='assistant' && entry.message.content.filter(part=>part.type==='toolCall').length!==1) return {block:true,reason:'Create a followup in a separate tool call before executing or delegating work.'};
         }
         const c = this.store.read();
+        if (event.toolName === 'research_plan' && (!c || c.modules.length > 0)) return { block: true, reason: !c ? 'Initialize with research_checklist(action: init) before creating an initial plan.' : 'An initial plan already exists; use research_checklist(action: plan) to replan while preserving progress.' };
+        if (event.toolName === 'research_checklist' && event.input.action === 'plan' && c && c.modules.length === 0 && event.input.expectedRevision === c.revision) return { block: true, reason: 'Use research_plan to create the initial plan on an empty Checklist.' };
         if (event.toolName === 'research_checklist' && event.input.action === 'accept' && c) {
           const module = currentModule(c);
           if (module?.skills.includes('research-report')) {
@@ -547,13 +551,13 @@ export class ResearchController {
         }
         const jobManagement = event.toolName === 'research_job' && (event.input as { action?: string }).action !== 'start';
         if (jobManagement || event.toolName === 'ask_user') return;
-        if ((!c || !c.modules.length) && !['read', 'grep', 'find', 'ls', 'research_checklist'].includes(event.toolName)) return {
+        if ((!c || !c.modules.length) && !['read', 'grep', 'find', 'ls', 'research_checklist', 'research_plan'].includes(event.toolName)) return {
           block: true,
           reason: !c
             ? 'Checklist is not initialized. Call research_checklist(action: "init", objective), then use the returned revision to plan modules. Necessary read/grep/find/ls and ask_user clarification are allowed before planning.'
-            : `Checklist is already initialized at revision ${c.revision}; no modules are planned. Do not call init again. Clarify the goal with ask_user if needed, then call research_checklist(action: "plan", expectedRevision: ${c.revision}, reason, modules: [...]). Read-only questions may use resolve(response) instead. Command execution, writing and delegation require a planned, started module.`,
+            : `Checklist is already initialized at revision ${c.revision}; no modules are planned. Do not call init again. Clarify the goal with ask_user if needed, then call research_plan(expectedRevision: ${c.revision}, reason, modules: [...]). Read-only questions may use resolve(response) instead. Command execution, writing and delegation require a planned, started module.`,
         };
-        if (c && c.modules.length && !['read', 'grep', 'find', 'ls', 'research_checklist'].includes(event.toolName) && !(!currentModule(c) && ['web_search','academic_search','fetch_content','get_search_content','paper_lookup','paper_citations'].includes(event.toolName))) {
+        if (c && c.modules.length && !['read', 'grep', 'find', 'ls', 'research_checklist', 'research_plan'].includes(event.toolName) && !(!currentModule(c) && ['web_search','academic_search','fetch_content','get_search_content','paper_lookup','paper_citations'].includes(event.toolName))) {
           const m = currentModule(c);
           if (!m) {
             if(['write','edit'].includes(event.toolName)) this.store.change('Artifact delivery requires a followup',value=>{const instruction=value.control.instructions.findLast(i=>!i.resolution);if(instruction)instruction.requiresArtifact=true;});
@@ -755,13 +759,24 @@ export class ResearchController {
         } catch (error) { return { content: [{ type: 'text' as const, text: String(error) }], details: { error: String(error) }, isError: true }; }
       },
     });
-    pi.registerTool({ name: 'research_checklist', label: 'Research checklist', executionMode: 'sequential',
-      description: checklistGuide,
-      parameters: ChecklistParameters,
-      execute: async (_id, p, signal): Promise<{ content: { type: 'text'; text: string }[]; details: unknown; isError?: boolean; terminate?: boolean }> => {
+    const executeChecklist = async (p: ChecklistArguments, signal?: AbortSignal, initialPlan = false): Promise<{ content: { type: 'text'; text: string }[]; details: unknown; isError?: boolean; terminate?: boolean }> => {
         if (p.action === 'help') return { content: [{ type: 'text', text: checklistGuide }], details: { guide: checklistGuide } };
         if (!this.active || !this.store) return { content: [{ type: 'text', text: 'Activate with /researcher, or send a new instruction after interruption.' }], details: {}, isError: true };
         try {
+          if (initialPlan) {
+            const input = p as ChecklistArguments & InitialPlanArguments;
+            if (!Value.Check(InitialPlanParameters, { title: input.title, expectedRevision: input.expectedRevision, reason: input.reason, modules: input.modules })) throw new Error('Invalid research_plan arguments');
+            const current = this.store.read();
+            if (!current) throw new Error('Initialize the Checklist before creating its initial plan.');
+            if (current.revision !== input.expectedRevision) applyChecklistAction(this.store, p);
+            if (current.modules.length) throw new Error('Initial plan already exists; use research_checklist(action: plan) to replan while preserving progress.');
+          } else if (p.action === 'plan') {
+            const current = this.store.read();
+            if (current && current.modules.length === 0) {
+              if (current.revision !== p.expectedRevision) applyChecklistAction(this.store, p);
+              throw new Error('Use research_plan to create the initial plan on an empty Checklist.');
+            }
+          }
           if (p.action === 'accept' && (!p.moduleId || p.expectedRevision === undefined || !p.reason?.trim() || !p.evidence?.length || !p.acceptance?.length)) throw new Error('accept requires moduleId, expectedRevision, reason, evidence and acceptance explicitly together.');
           if (['followup','accept'].includes(p.action) && this.asyncDelegations.size) throw new Error('Wait for native child completion before accepting or switching work.');
           if (p.action === 'accept' && this.moduleSettings().interactionMode === 'review') {
@@ -792,7 +807,15 @@ export class ResearchController {
           const details = this.checklistError(error, p);
           return { content: [{ type: 'text', text: JSON.stringify(details) }], details, isError: true };
         }
-      },
+      };
+    pi.registerTool({ name: 'research_checklist', label: 'Research checklist', executionMode: 'sequential',
+      description: checklistGuide, parameters: ChecklistParameters,
+      execute: async (_id, p, signal) => executeChecklist(p, signal),
+    });
+    pi.registerTool({ name: 'research_plan', label: 'Create initial research plan', executionMode: 'sequential',
+      description: 'Create the initial ordered Checklist modules. Use only after initialization and before any modules exist. For later replanning use research_checklist(action=plan).',
+      parameters: InitialPlanParameters,
+      execute: async (_id, p, signal) => executeChecklist({ ...p, action: 'plan' } as ChecklistArguments, signal, true),
     });
   }
 }

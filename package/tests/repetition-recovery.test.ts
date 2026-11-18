@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { test, type TestContext } from 'node:test';
+import { Value } from 'typebox/value';
+import { validateToolArguments } from '@earendil-works/pi-ai';
 import { ResearchController } from '../extensions/researcher/controller.ts';
 import { ChecklistStore } from '../extensions/researcher/checklist.ts';
 import { applyChecklistAction, checklistRecovery } from '../extensions/researcher/checklist-tool.ts';
@@ -91,11 +93,11 @@ test('missing initial plan modules returns a fillable plan recovery without chan
 
   const result = checklistRecovery(store, error, attempted);
   const recovery = (result as any).recovery;
-  assert.equal(recovery.nextAction, 'plan');
+  assert.equal(recovery.nextAction, 'research_plan');
   assert.equal(recovery.currentRevision, initial.revision);
   assert.equal(recovery.planningRequirements.objective, 'Review precipitation forecasting methods');
   assert.deepEqual(recovery.planningRequirements.retryTemplate, {
-    action: 'plan', expectedRevision: initial.revision, reason: 'Initial plan',
+    expectedRevision: initial.revision, reason: 'Initial plan',
     modules: [{ id: 'M1', objective: '', skills: [], criteria: [], dependencies: [] }],
   });
   assert.equal(recovery.planningRequirements.templateNeedsCompletion, true);
@@ -105,10 +107,10 @@ test('missing initial plan modules returns a fillable plan recovery without chan
   assert.match(recovery.planningRequirements.instruction, /Empty objective or acceptance criteria/);
   assert.equal(JSON.stringify(store.read()), before, 'recovery must not submit or mutate the checklist');
 
-  assert.throws(() => applyChecklistAction(store, recovery.planningRequirements.retryTemplate), /Invalid arguments/i,
+  assert.throws(() => applyChecklistAction(store, { ...recovery.planningRequirements.retryTemplate, action: 'plan' }), /Invalid arguments/i,
     'the empty skeleton must fail validation');
   assert.equal(JSON.stringify(store.read()), before);
-  const filled = { ...recovery.planningRequirements.retryTemplate, modules: [{ id: 'M1',
+  const filled = { ...recovery.planningRequirements.retryTemplate, action: 'plan', modules: [{ id: 'M1',
     objective: 'Compare forecasting methods against available precipitation datasets',
     skills: ['research-literature'], criteria: ['Use primary sources to compare methods'], dependencies: [] }] };
   const planned = applyChecklistAction(store, filled as any)!;
@@ -116,23 +118,116 @@ test('missing initial plan modules returns a fillable plan recovery without chan
   assert.equal(planned.modules[0].status, 'pending');
 });
 
-test('the registered checklist tool exposes plan recovery and preserves the three-failure pause', async t => {
+test('the initial planning tool exposes recovery and preserves the three-failure pause', async t => {
   const h = setup(t);
   h.store.change('Reset to unplanned checklist', c => { c.modules = []; });
   const revision = h.store.read()!.revision;
-  const args = { action: 'plan', expectedRevision: revision, reason: 'Initial plan' };
+  const args = { expectedRevision: revision, reason: 'Initial plan' };
   let result: any;
-  for (let i = 0; i < 3; i++) result = await h.tools.research_checklist.execute(`plan-${i}`, args);
+  for (let i = 0; i < 3; i++) result = await h.tools.research_plan.execute(`plan-${i}`, args);
   assert.equal(result.isError, true);
-  assert.equal(result.details.recovery.nextAction, 'plan');
+  assert.equal(result.details.recovery.nextAction, 'research_plan');
   assert.equal(result.details.recovery.planningRequirements.retryTemplate.expectedRevision, revision);
   const checkpoint = JSON.parse(h.hooks.context({ messages: [] }, h.ctx).messages.at(-1).content);
-  assert.equal(checkpoint.checklistRecovery.nextAction, 'plan');
+  assert.equal(checkpoint.checklistRecovery.nextAction, 'research_plan');
   assert.equal(checkpoint.checklistRecovery.repeatedAttempts, 3);
   await h.hooks.turn_end({ outcome: 'completed' }, h.ctx);
   await (h.controller as any).pausing;
   assert.equal(h.store.read()!.control.state, 'paused');
   assert.match(h.store.read()!.control.reason, /Repeated checklist failure/);
+});
+
+test('initial planning requires complete schema and cannot replace an existing plan', async t => {
+  const h = setup(t);
+  const beforeExisting = h.store.read()!;
+  const modules = beforeExisting.modules.map(({ id, objective, skills, criteria, dependencies }) =>
+    ({ id, objective, skills, criteria, dependencies }));
+  const tool = h.tools.research_plan;
+  assert.ok(tool, 'the initial planning tool is registered');
+  const required = tool.parameters.required;
+  for (const name of ['expectedRevision', 'reason', 'modules']) assert.ok(required.includes(name));
+  const definitionRequired = tool.parameters.properties.modules.items.required;
+  for (const name of ['id', 'objective', 'skills', 'criteria']) assert.ok(definitionRequired.includes(name));
+  const existing = await tool.execute('existing', { expectedRevision: beforeExisting.revision, reason: 'Initial plan', modules });
+  assert.equal(existing.isError, true);
+  assert.deepEqual(h.store.read(), beforeExisting, 'initial tool cannot replan an existing checklist');
+
+  // Later replanning remains available through the original checklist tool.
+  const replanned = await h.tools.research_checklist.execute('replan', {
+    action: 'plan', expectedRevision: beforeExisting.revision, reason: 'Keep the existing definitions', modules,
+  });
+  assert.notEqual(replanned.isError, true);
+  assert.equal(h.store.read()!.modules[0].status, 'running');
+  h.store.change('Reset to initial planning', c => { c.modules = []; });
+  const revision = h.store.read()!.revision;
+  const params = { expectedRevision: revision, reason: 'Create the initial plan', modules };
+  assert.equal(Value.Check(tool.parameters, params), true);
+  for (const key of ['expectedRevision', 'reason', 'modules']) {
+    const omitted: Record<string, unknown> = { ...params }; delete omitted[key];
+    assert.equal(Value.Check(tool.parameters, omitted), false, `${key} is required in the provider schema`);
+  }
+  assert.equal(Value.Check(tool.parameters, { ...params, modules: [] }), false);
+  assert.equal(Value.Check(tool.parameters, { ...params, modules: [{ id: 'M1', skills: [], criteria: [] }] }), false);
+  const before = h.store.read();
+  const legacy = await h.tools.research_checklist.execute('legacy-initial', { ...params, action: 'plan' });
+  assert.equal(legacy.isError, true, 'the old tool cannot bypass initial planning constraints');
+  assert.match(JSON.stringify(legacy), /research_plan/);
+  assert.deepEqual(h.store.read(), before);
+  const gate = h.hooks.tool_call({ toolName: 'research_plan', toolCallId: 'initial', input: params }, h.ctx);
+  assert.equal(gate?.block, undefined, 'initial planning is allowed before modules exist');
+  assert.equal(h.hooks.tool_call({ toolName: 'ask_user', toolCallId: 'clarify', input: {} }, h.ctx)?.block, undefined);
+  const result = await tool.execute('initial', params);
+  assert.notEqual(result.isError, true);
+  assert.equal(result.details.initialized, true);
+  assert.equal(result.details.modules[0].status, 'pending');
+  assert.equal(result.details.revision, revision + 1);
+});
+
+test('initial planning guidance preserves conversational completion and waiting', t => {
+  const h = setup(t);
+  h.store.change('Resolved conversational request', c => {
+    c.modules = [];
+    c.control.instructions = [{ id: 'I-test', text: 'Explain the project', resolution: 'Answered', response: 'The requested explanation' }];
+  });
+  const checkpoint = () => JSON.parse(h.controller.checkpoint(h.ctx));
+  assert.equal(checkpoint().nextAction, 'finish', 'a resolved conversation must not become a research plan');
+  h.store.change('Research needs initial planning', c => { c.control.instructions = []; });
+  assert.equal(checkpoint().nextAction, 'research_plan');
+  h.store.change('Waiting', c => { c.control.state = 'waiting'; });
+  assert.match(checkpoint().nextAction, /wait/);
+});
+
+test('initial planning rejects stale revisions and SDK failures are classified only once', async t => {
+  const h = setup(t);
+  h.store.change('Reset to initial planning', c => { c.modules = []; });
+  const revision = h.store.read()!.revision;
+  const params = { expectedRevision: revision - 1, reason: 'Initial plan',
+    modules: [{ id: 'M1', objective: 'Review primary sources', skills: ['research-literature'], criteria: ['Cite sources'], dependencies: [] }] };
+  const before = h.store.read();
+  const conflict = await h.tools.research_plan.execute('conflict', params);
+  assert.equal(conflict.isError, true);
+  assert.equal(conflict.details.recovery.nextAction, 'read');
+  assert.equal(conflict.details.recovery.planningRequirements?.retryTemplate, undefined);
+  assert.deepEqual(h.store.read(), before);
+
+  const args = { expectedRevision: revision, reason: 'Initial plan' };
+  const assistant = { role: 'assistant', content: [{ type: 'toolCall', id: 'sdk-missing', name: 'research_plan', arguments: args }] };
+  h.hooks.message_end({ message: assistant }, h.ctx);
+  let sdkError = '';
+  assert.throws(() => validateToolArguments(h.tools.research_plan, {
+    type: 'toolCall', id: 'sdk-missing', name: 'research_plan', arguments: args,
+  }), error => { sdkError = String(error); return /modules/.test(sdkError); });
+  const sdk = { role: 'toolResult', toolName: 'research_plan', toolCallId: 'sdk-missing', isError: true,
+    content: [{ type: 'text', text: sdkError }] };
+  const transformed = h.hooks.message_end({ message: sdk }, h.ctx);
+  assert.ok(transformed?.message);
+  const recovery = transformed.message.details.recovery;
+  assert.equal(recovery.nextAction, 'research_plan');
+  assert.equal(recovery.repeatedAttempts, 1);
+  assert.equal(recovery.planningRequirements.retryTemplate.action, undefined);
+  const repeatedHook = h.hooks.message_end({ message: transformed.message }, h.ctx);
+  assert.equal(repeatedHook, undefined);
+  assert.deepEqual(h.store.read(), before);
 });
 
 test('revision conflict and unrelated plan errors do not receive the missing-modules template', t => {
@@ -149,11 +244,11 @@ test('revision conflict and unrelated plan errors do not receive the missing-mod
   });
   const conflict = checklistRecovery(store, conflictError, attempted) as any;
   assert.equal(conflict.recovery.nextAction, 'read');
-  assert.equal(conflict.recovery.planningRequirements.retryTemplate, undefined);
+  assert.equal(conflict.recovery.planningRequirements?.retryTemplate, undefined);
 
   const other = checklistRecovery(store, new Error('Wait for active tasks before replanning.'), attempted) as any;
   assert.equal(other.recovery.nextAction, 'read');
-  assert.equal(other.recovery.planningRequirements.retryTemplate, undefined);
+  assert.equal(other.recovery.planningRequirements?.retryTemplate, undefined);
 });
 
 test('fourth unchanged call is blocked before execution; retry after correction pauses', async t => {

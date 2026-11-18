@@ -79,6 +79,7 @@ export function toolTitle(m: Pick<ChatMessage, 'name' | 'args'>) {
     fetch_content: '读取网页',
     get_search_content: '读取检索内容',
     research_checklist: '更新研究清单',
+    research_plan: '创建研究清单',
     research_job: '管理实验任务',
     download_pdf: '下载论文',
     subagent: '研究子任务',
@@ -110,7 +111,7 @@ export function toolTitle(m: Pick<ChatMessage, 'name' | 'args'>) {
     return agentActions[m.args.action];
   const title = typeof m.args?.title === 'string' ? m.args.title.replace(/\s+/g, ' ').trim() : '';
   const checklistLabel =
-    m.name === 'research_checklist'
+    ['research_checklist', 'research_plan'].includes(m.name || '')
       ? (title && Array.from(title).slice(0, 12).join('')) ||
         checklistActions[typeof m.args?.action === 'string' ? m.args.action : '']
       : undefined;
@@ -193,7 +194,7 @@ export function ToolStep({
   onPreviewFile?: (path: string, name: string) => void;
   workspacePath?: string;
 }) {
-  const [open, setOpen] = useState(m.name !== 'research_checklist');
+  const [open, setOpen] = useState(!['research_checklist', 'research_plan'].includes(m.name || ''));
   const [retrying, setRetrying] = useState(false);
   const running = m.status === 'running';
   const completed = m.status === 'completed';
