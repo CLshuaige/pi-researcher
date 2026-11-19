@@ -28,6 +28,7 @@ const ChecklistActionParameters = Type.Object({
   kind: Type.Optional(Type.Union([Type.Literal('analysis'),Type.Literal('revision')], {description:'followup only: supplementary analysis or a new version of the selected stage.'})),
   criteria: Type.Optional(ModuleSchema.properties.criteria),
   skills: Type.Optional(ModuleSchema.properties.skills),
+  targetModules: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true, description: 'followup only: all original module IDs explicitly requested by this user instruction, in execution order (e.g. [M5,M6] for experiments plus report). Declare on the first followup. Each target executes sequentially; the instruction resolves only after every target is accepted or explicitly skipped. Not inferred from needsReview.' })),
   affectedModules: Type.Optional(Type.Array(Type.String(), {description:'followup only: downstream modules requiring review. Omit for conservative dependency propagation; [] requires an explicit impact explanation.'})),
   impact: Type.Optional(Type.String({minLength:1})),
   response: Type.Optional(Type.String({minLength:1,description:'resolve only: actual answer for a conversational question, not a claim that unverified files were written.'})),
@@ -52,7 +53,7 @@ Use ONE mutation per tool result, not a batch. In examples replace expectedRevis
 - Plan ordered definitions with research_plan: {"expectedRevision":1,"reason":"Initial plan","modules":[{"id":"M1","objective":"Inspect evidence","skills":["research-literature"],"criteria":["Cite original sources"],"dependencies":[]}]}. For later replanning use research_checklist(action="plan").
   Required per module: id, objective, skills, criteria. skills accepts only research-task, research-literature, research-hypothesis, research-method, research-experiment, research-report and research-review; internal -single skills are not stages. dependencies defaults to []. Runtime fills pending status and empty evidence/acceptance. Preserve existing IDs. Unchanged definitions preserve progress; changed definitions reopen this and following modules. Do not change status through plan.
 - Completed-stage followup: {"action":"followup","expectedRevision":1,"reason":"User requested a method amendment","instructionId":"I-...","moduleId":"M3","kind":"revision","objective":"Amend only the method document; do not run experiments","criteria":["Deliver and verify the requested amendments"],"impact":"Mark dependent experiments/report for review; do not rerun them"}.
-  The harness creates a new ordered module and version outputDir, preserving original modules and artifacts. kind=analysis defaults to no specialist skills and does not replace the accepted version. kind=revision inherits the target's skills unless explicitly supplied. Read the resulting currentModule.id and followup.outputDir; start and accept that new ID. Never write old accepted paths. Bound instructions resolve automatically only after acceptance. Prefer small amendments and existing evidence over repeating a whole workflow. affectedModules=[] requires impact explaining why downstream results remain applicable. Historical completed results are retained; needsReview is not authorization to rerun them.
+  The harness creates a new ordered module and version outputDir, preserving original modules and artifacts. kind=analysis defaults to no specialist skills and does not replace the accepted version. kind=revision inherits the target's skills unless explicitly supplied. Read the resulting currentModule.id and followup.outputDir; start and accept that new ID. Never write old accepted paths. For a request spanning multiple stages, declare targetModules (e.g. ["M5","M6"]) on the first followup; use the SAME instructionId for each sequential target. Acceptance unbinds the completed step while keeping the instruction pending until every declared target is accepted or explicitly skipped. Single-target instructions still resolve automatically after acceptance. Never use needsReview as authorization for extra work. Prefer small amendments and existing evidence over repeating a whole workflow. affectedModules=[] requires impact explaining why downstream results remain applicable. Historical completed results are retained; needsReview is not authorization to rerun them.
 - Start: {"action":"start","expectedRevision":1,"reason":"Begin current module","moduleId":"M1"}.
   Only the runtime-selected currentModule (normally the first unfinished module; registered followups take precedence) may execute, delegate or be accepted. Its complete SKILL.md instructions are injected into requests; follow them. Blocked modules must be resolved or explicitly skipped, never bypassed.
 - Update fields: {"action":"update","expectedRevision":1,"reason":"Collected evidence","moduleId":"M1","status":"awaiting_acceptance","evidence":["research/result.md"]}.
@@ -72,7 +73,7 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
   if (p.action === 'init') return store.initialize(p.objective ?? '');
   if (p.expectedRevision === undefined || !p.reason?.trim()) throw new Error('Mutation requires expectedRevision and nonempty reason. Read first.');
   if (p.objective !== undefined && !['resolve','followup'].includes(p.action)) throw new Error('Change objective through resolve with instructionId.');
-  if(p.action!=='followup' && [p.kind,p.criteria,p.skills,p.affectedModules,p.impact].some(value=>value!==undefined))throw new Error('kind/criteria/skills/affectedModules/impact are followup-only fields.');
+  if(p.action!=='followup' && [p.kind,p.criteria,p.skills,p.targetModules,p.affectedModules,p.impact].some(value=>value!==undefined))throw new Error('kind/criteria/skills/targetModules/affectedModules/impact are followup-only fields.');
   if(p.response!==undefined && p.action!=='resolve')throw new Error('response is for resolve only.');
   return store.change(p.reason, c => {
     if (p.action === 'resolve') {
@@ -98,6 +99,12 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
       if(store.files.activeWork().length || c.modules.some(m=>m.followup && !['completed','skipped'].includes(m.status))) throw new Error('Finish or cancel active work before creating another followup.');
       const instruction=c.control.instructions.find(i=>i.id===p.instructionId && !i.resolution);
       if(!instruction || instruction.followupModuleId) throw new Error('Use an unresolved, unbound instructionId.');
+      const targets = p.targetModules ?? instruction.followupTargets ?? [p.moduleId];
+      if (!targets.includes(p.moduleId) || targets.some(id => !c.modules.some(m => m.id === id && !m.followup && m.status === 'completed' && m.acceptedRevision === c.objectiveRevision))) throw new Error('targetModules must list accepted original modules explicitly requested by the user, including moduleId.');
+      if (instruction.followupTargets && JSON.stringify(targets) !== JSON.stringify(instruction.followupTargets)) throw new Error('Preserve the registered targetModules scope; do not add unrequested downstream work.');
+      const nextTarget = targets.find(id => !c.modules.some(m => m.followup?.instructionId === p.instructionId && m.followup?.targetModuleId === id && ['completed','skipped'].includes(m.status)));
+      if (nextTarget !== p.moduleId) throw new Error(`Next authorized followup target is ${nextTarget ?? 'none'}; preserve the requested order.`);
+      instruction.followupTargets = targets;
       const target=c.modules.find(m=>m.id===p.moduleId && !m.followup);
       if(!target || target.status!=='completed' || target.acceptedRevision!==c.objectiveRevision) throw new Error('Followups target a currently accepted original module; continue unfinished research normally.');
       if(p.kind==='revision' && !p.impact?.trim()) throw new Error('A revision requires impact: describe downstream effects and the authorized scope.');
@@ -164,13 +171,20 @@ export function applyChecklistAction(store: ChecklistStore, p: ChecklistArgument
           target.currentVersionId=m.id;target.needsReview=[];
           for(const id of m.followup.affectedModules){const dependent=c.modules.find(module=>module.id===id)!;dependent.needsReview=[...new Set([...(dependent.needsReview ?? []),m.id])];}
         }
-        const instruction=c.control.instructions.find(i=>i.id===m.followup!.instructionId)!;
-        instruction.resolution=p.reason;instruction.response=`Verified delivery: ${m.evidence.join(', ')}`;
+
       }
     }
     if (['completed', 'skipped'].includes(status) && store.files.activeWork(id).length) throw new Error('Module has running tasks; wait or cancel them.');
-    if(status==='skipped' && m.followup){const instruction=c.control.instructions.find(i=>i.id===m.followup!.instructionId)!;instruction.resolution=`Cancelled without publishing: ${p.reason}`;}
     c.modules[c.modules.findIndex(m => m.id === id)] = m;
+    if (['completed','skipped'].includes(status) && m.followup) {
+      const instruction=c.control.instructions.find(i=>i.id===m.followup!.instructionId)!;
+      const remaining=(instruction.followupTargets ?? [m.followup.targetModuleId]).filter(target => !c.modules.some(part => part.followup?.instructionId===instruction.id && part.followup.targetModuleId===target && ['completed','skipped'].includes(part.status)));
+      instruction.response=status==='skipped' ? `Cancelled without publishing: ${p.reason}` : `Verified delivery: ${m.evidence.join(', ')}`;
+      if (remaining.length) {
+        delete instruction.followupModuleId;
+        instruction.response+=`; remaining authorized modules: ${remaining.join(', ')}`;
+      } else instruction.resolution=status==='skipped' ? `Cancelled without publishing: ${p.reason}` : p.reason;
+    }
   }, p.expectedRevision, 'manager');
 }
 

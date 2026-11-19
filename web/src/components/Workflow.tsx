@@ -1,3 +1,4 @@
+import { readableError } from '../../shared/errors';
 import { presentationRole } from '../../shared/types';
 import { PresentationView, PresentationLoading } from './PresentationView';
 import { Dialog } from '@animate-ui/react/primitives/radix-ui/dialog';
@@ -89,6 +90,7 @@ function Stage({ data }: NodeProps<StageNode>) {
     (version) => version.accepted || holder?.versions?.[version.id]?.digest,
   );
   const selectedVersion = data.selectedVersion as string;
+  const failedUpdate = data.failedUpdate as PresentationBoard | undefined;
   const selectVersion = data.onSelectVersion as (version: string) => void;
   const busy = activity?.status === 'queued' || activity?.status === 'rendering';
   const failed =
@@ -103,7 +105,8 @@ function Stage({ data }: NodeProps<StageNode>) {
     busy &&
     (activity.versionId === selectedVersion ||
       (!!data.followCurrent && activity.versionId === data.currentVersionId));
-  const preview = data.onPreviewFile as (path: string, name: string) => void;
+  const preview = (path: string, name: string) =>
+    (data.onPreviewFile as (path: string, name: string, followLatest?: boolean) => void)(path, name, !!data.followCurrent);
   const theme = presentationRole(data.label),
     Icon = ROLE_ICONS[theme.role];
   const element = useRef<HTMLDivElement>(null);
@@ -226,6 +229,12 @@ function Stage({ data }: NodeProps<StageNode>) {
           )}
         </div>
       </div>
+      {(failedUpdate?.error || board?.error) && (
+        <p className="presentation-error" role="status" title={readableError(failedUpdate?.error || board?.error)}>
+          {failedUpdate ? `新版本更新失败，当前显示 V${board?.versionNumber || 1}。` : '更新失败。'}
+          {readableError(failedUpdate?.error || board?.error)}
+        </p>
+      )}
       <div className="presentation-stack" data-stacked={choices.length > 1}>
         <article className="presentation-sheet" aria-busy={boardBusy}>
           <Icon
@@ -299,11 +308,7 @@ function Stage({ data }: NodeProps<StageNode>) {
               </button>
             )}
           </div>
-          {board?.error && (
-            <p className="presentation-error" role="status" title={board.error}>
-              更新失败
-            </p>
-          )}
+
         </article>
       </div>
       <Handle type="source" position={Position.Bottom} id="bottom" />
@@ -342,7 +347,7 @@ function FlowCanvas({
   running?: boolean;
   onInit?: (inst: ReactFlowInstance<FlowNode>) => void;
   artifacts?: Artifact[];
-  onPreviewFile: (path: string, name: string) => void;
+  onPreviewFile: (path: string, name: string, followLatest?: boolean) => void;
 }) {
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNode> | null>(null);
   const element = useRef<HTMLDivElement>(null);
@@ -412,6 +417,7 @@ function FlowCanvas({
       let board: PresentationBoard | undefined =
         holder?.versions?.[requested] ||
         (holder && (!holder.versions || holder.versionId === requested) ? holder : undefined);
+      const failedUpdate = !selectedVersions[node.id] && board?.status === 'failed' ? board : undefined;
       if (!selectedVersions[node.id] && !board?.digest && !board?.previewDigest && holder?.digest)
         board = holder;
       const selectedVersion =
@@ -435,6 +441,7 @@ function FlowCanvas({
           description: version?.objective || node.description,
           sessionId,
           board,
+          failedUpdate,
           presentationStage: holder,
           selectedVersion,
           followCurrent: !selectedVersions[node.id],
@@ -635,7 +642,7 @@ export function Workflow({
   workflow: WorkflowData;
   onClose: () => void;
   artifacts: Artifact[];
-  onPreviewFile: (path: string, name: string) => void;
+  onPreviewFile: (path: string, name: string, followLatest?: boolean) => void;
 }) {
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const selectVersion = useCallback((stage: string, version: string) => {

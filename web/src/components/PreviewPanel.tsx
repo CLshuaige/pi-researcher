@@ -1,3 +1,4 @@
+import type { Workflow } from '../../shared/types';
 import { Tabs } from '@animate-ui/react/primitives/radix-ui/tabs';
 import { FileIcon } from './FileIcon';
 import {
@@ -27,11 +28,17 @@ export interface PreviewTab {
   url?: string;
   content?: string;
   loading?: boolean;
+  updatedAt?: number;
+  moduleId?: string;
+  versionId?: string;
+  followLatest?: boolean;
 }
 const EDITABLE =
   /\.(md|markdown|txt|json|jsonl|yaml|yml|toml|py|ts|tsx|js|jsx|sh|csv|css|html|xml|sql)$/i;
 export function PreviewPanel({
   sessionId,
+  workflow,
+  onVersionChange,
   reportError,
   onSaved,
   tabs,
@@ -41,6 +48,8 @@ export function PreviewPanel({
   onCloseAll,
 }: {
   sessionId?: string;
+  workflow?: Workflow;
+  onVersionChange?: (tabId: string, versionId: string) => void;
   reportError: (message: string) => void;
   onSaved?: (path: string, text: string) => void;
   tabs: PreviewTab[];
@@ -58,9 +67,11 @@ export function PreviewPanel({
     setEditing(false);
   }, [active?.id]);
   if (!active) return null;
+  const module = workflow?.nodes.find((node) => node.id === active.moduleId);
   const draft = drafts[active.id] ?? active.content ?? '';
   const editable =
     active.type === 'file' &&
+    !active.loading &&
     active.path &&
     EDITABLE.test(active.title) &&
     active.content !== undefined;
@@ -88,6 +99,34 @@ export function PreviewPanel({
         <div className="preview-header">
           <strong title={active.path || active.url}>{active.title}</strong>
           <div className="preview-header-actions">
+            {!!module?.versions?.length && (
+              <select
+                className="preview-version-select"
+                aria-label="预览版本"
+                value={active.followLatest ? '' : active.versionId}
+                onChange={(event) => {
+                  setEditing(false);
+                  setDrafts((old) => {
+                    const next = { ...old };
+                    delete next[active.id];
+                    return next;
+                  });
+                  onVersionChange?.(active.id, event.target.value);
+                }}
+              >
+                <option value="">
+                  跟随当前 V
+                  {module.versions.find(
+                    (version) => version.id === (module.currentVersionId || module.id),
+                  )?.versionNumber || 1}
+                </option>
+                {module.versions.map((version) => (
+                  <option key={version.id} value={version.id}>
+                    V{version.versionNumber || 1}（固定）
+                  </option>
+                ))}
+              </select>
+            )}
             {active.path && sessionId && (
               <a
                 className="icon-button"
@@ -132,7 +171,10 @@ export function PreviewPanel({
                   className="icon-button"
                   aria-label="编辑文件"
                   title="编辑"
-                  onClick={() => setEditing(true)}
+                  onClick={() => {
+                    if (active.versionId) onVersionChange?.(active.id, active.versionId);
+                    setEditing(true);
+                  }}
                 >
                   <Pencil size={16} />
                 </button>

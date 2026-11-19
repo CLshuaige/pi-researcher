@@ -28,8 +28,38 @@ import type {
   ResearchSession,
   SessionSummary,
   ModelOption,
+  Workflow as WorkflowState,
+  WorkflowVersion,
 } from '../shared/types';
 import { isResearchRunning } from '../shared/research';
+
+function fileVersion(workflow: WorkflowState, path: string) {
+  for (const node of workflow.nodes) {
+    const version = node.versions?.find((version) => version.evidence.includes(path));
+    if (version) return { node, version };
+  }
+}
+function versionFile(version: WorkflowVersion, path: string) {
+  if (version.evidence.includes(path)) return path;
+  const stem = (file: string) => (file.split('/').pop() || file).replace(/_v\d+(?=\.)/i, '');
+  const matches = version.evidence.filter((file) => stem(file) === stem(path));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+async function previewContent(sessionId: string, path: string, updatedAt?: number) {
+  const resolved = await api.resolveFile(sessionId, path);
+  return {
+    path: resolved.path,
+    title: resolved.name,
+    updatedAt,
+    loading: false,
+    ...(/\.(png|jpe?g|gif|webp|pdf)$/i.test(resolved.name)
+      ? {
+          url: `/api/sessions/${sessionId}/files/preview?path=${encodeURIComponent(resolved.path)}&v=${updatedAt ?? 0}`,
+          content: undefined,
+        }
+      : { content: (await api.preview(sessionId, resolved.path)).text, url: undefined }),
+  };
+}
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -149,40 +179,56 @@ export default function App() {
   const resolvingTabs = useRef(new Set<string>());
   useEffect(() => {
     if (!session) return;
-    const present = new Set(flatten(session.artifacts).map((file) => file.path));
+    const files = new Map(flatten(session.artifacts).map((file) => [file.path, file]));
     for (const tab of previewTabs) {
-      if (!tab.path || present.has(tab.path) || resolvingTabs.current.has(tab.id)) continue;
+      if (!tab.path || resolvingTabs.current.has(tab.id)) continue;
+      const node = session.workflow.nodes.find((node) => node.id === tab.moduleId);
+      const current = node?.versions?.find(
+        (version) => version.id === (node.currentVersionId || node.id),
+      );
+      const changedVersion = !!(tab.followLatest && current && current.id !== tab.versionId);
+      const file = files.get(tab.path);
+      if (!changedVersion && file && file.updatedAt === tab.updatedAt) continue;
+      const path = changedVersion ? versionFile(current!, tab.path) : tab.path;
+      if (!path) {
+        setPreviewTabs((old) =>
+          old.map((item) =>
+            item.id === tab.id ? { ...item, followLatest: false, loading: false } : item,
+          ),
+        );
+        reportError('新版本没有该文件的唯一对应产物，已保留原版本预览。');
+        continue;
+      }
       const sessionId = session.id;
+      setPreviewTabs((old) =>
+        old.map((item) => (item.id === tab.id ? { ...item, loading: true } : item)),
+      );
       resolvingTabs.current.add(tab.id);
-      void api
-        .resolveFile(sessionId, tab.path)
-        .then((resolved) => {
+      void previewContent(sessionId, path, files.get(path)?.updatedAt)
+        .then((content) => {
           if (active.current !== sessionId) return;
           setPreviewTabs((old) =>
             old.map((item) =>
               item.id === tab.id
-                ? {
-                    ...item,
-                    path: resolved.path,
-                    title: resolved.name,
-                    ...(item.url
-                      ? {
-                          url: `/api/sessions/${sessionId}/files/preview?path=${encodeURIComponent(resolved.path)}`,
-                        }
-                      : {}),
-                  }
+                ? { ...item, ...content, ...(changedVersion ? { versionId: current!.id } : {}) }
                 : item,
             ),
           );
         })
         .catch((error) => {
           if (active.current !== sessionId) return;
-          setPreviewTabs((old) => old.filter((item) => item.id !== tab.id));
+          setPreviewTabs((old) =>
+            !file && !changedVersion
+              ? old.filter((item) => item.id !== tab.id)
+              : old.map((item) =>
+                  item.id === tab.id ? { ...item, followLatest: false, loading: false } : item,
+                ),
+          );
           reportError(error.message);
         })
         .finally(() => resolvingTabs.current.delete(tab.id));
     }
-  }, [session?.id, session?.artifacts, reportError]);
+  }, [session?.id, session?.artifacts, session?.workflow, reportError]);
   const accept = useCallback((s: ResearchSession) => {
     if (s.id !== active.current || s.revision < version.current) return;
     version.current = s.revision;
@@ -318,60 +364,108 @@ export default function App() {
       void api.presentationVisible(activeId, false, viewer.current).catch(() => {});
     };
   }, [activeId, showFlow, hasPreviewTabs, connected]);
-  async function openPreviewFile(path: string, name: string) {
+  async function openPreviewFile(path: string, name: string, followLatest = true) {
     if (!session) return;
-    setInspectorView('preview');
+    const sessionId = session.id;
+    let openedTabId: string | undefined;
     if (session.workspacePath && path.startsWith(session.workspacePath + '/'))
       path = path.slice(session.workspacePath.length + 1);
     if (session.workspaceDir) {
-      const marker = `/workspace/${session.workspaceDir}/`;
-      const index = path.indexOf(marker);
+      const marker = `/workspace/${session.workspaceDir}/`,
+        index = path.indexOf(marker);
       if (index >= 0) path = path.slice(index + marker.length);
     }
     try {
-      const resolved = await api.resolveFile(session.id, path);
-      if (active.current !== session.id) return;
-      path = resolved.path;
-      name = resolved.name;
-    } catch (error) {
-      reportError((error as Error).message);
-      return;
-    }
-    const existing = previewTabs.find((tab) => tab.path === path);
-    const id = existing?.id || `file-${path}`;
-    // Check if tab already exists
-    if (previewTabs.some((t) => t.id === id)) {
-      setActivePreviewId(id);
-      return;
-    }
-    // Images: open directly with URL, no content fetch needed
-    if (/\.(png|jpe?g|gif|webp|pdf)$/i.test(name)) {
-      const newTab: PreviewTab = {
-        id,
-        type: 'file',
-        title: name,
-        path,
-        url: `/api/sessions/${session.id}/files/preview?path=${encodeURIComponent(path)}`,
+      path = (await api.resolveFile(sessionId, path)).path;
+      const binding = fileVersion(session.workflow, path);
+      let version = binding?.version;
+      const current = binding?.node.versions?.find(
+        (item) => item.id === (binding.node.currentVersionId || binding.node.id),
+      );
+      if (followLatest && current && current.id !== version?.id) {
+        const latestPath = versionFile(current, path);
+        if (latestPath) {
+          path = latestPath;
+          version = current;
+        } else followLatest = false;
+      }
+      if (active.current !== sessionId) return;
+      setInspectorView('preview');
+      const existing = previewTabs.find((tab) => tab.path === path);
+      const id = existing?.id || `file-${path}`;
+      const metadata = {
+        moduleId: binding?.node.id,
+        versionId: version?.id,
+        followLatest: !!binding && followLatest,
       };
-      setPreviewTabs((old) => [...old, newTab]);
+      if (existing) {
+        setPreviewTabs((old) => old.map((tab) => (tab.id === id ? { ...tab, ...metadata } : tab)));
+        setActivePreviewId(id);
+        return;
+      }
+      openedTabId = id;
+      setPreviewTabs((old) => [
+        ...old,
+        {
+          id,
+          type: 'file',
+          title: path.split('/').pop() || name,
+          path,
+          loading: true,
+          ...metadata,
+        },
+      ]);
       setActivePreviewId(id);
+      const stamp = flatten(session.artifacts).find((file) => file.path === path)?.updatedAt;
+      const content = await previewContent(sessionId, path, stamp);
+      if (active.current === sessionId)
+        setPreviewTabs((old) => old.map((tab) => (tab.id === id ? { ...tab, ...content } : tab)));
+    } catch (error) {
+      if (openedTabId && active.current === sessionId)
+        setPreviewTabs((old) => old.filter((tab) => tab.id !== openedTabId));
+      reportError((error as Error).message);
+    }
+  }
+  async function selectPreviewVersion(tabId: string, versionId: string) {
+    if (!session) return;
+    const tab = previewTabs.find((tab) => tab.id === tabId);
+    const node = session.workflow.nodes.find((node) => node.id === tab?.moduleId);
+    const version = node?.versions?.find(
+      (version) => version.id === (versionId || node.currentVersionId || node.id),
+    );
+    if (!tab?.path || !version) return;
+    const path = versionFile(version, tab.path);
+    if (!path) {
+      reportError('该版本没有此文件的唯一对应产物。');
       return;
     }
-    // Text files: fetch content then display
-    const newTab: PreviewTab = { id, type: 'file', title: name, path, loading: true };
-    setPreviewTabs((old) => [...old, newTab]);
-    setActivePreviewId(id);
-    api
-      .preview(session.id, path)
-      .then((data) => {
+    const sessionId = session.id;
+    const metadata = { followLatest: !versionId, versionId: version.id };
+    if (path === tab.path) {
+      setPreviewTabs((old) =>
+        old.map((item) => (item.id === tabId ? { ...item, ...metadata } : item)),
+      );
+      return;
+    }
+    setPreviewTabs((old) =>
+      old.map((item) => (item.id === tabId ? { ...item, loading: true } : item)),
+    );
+    try {
+      const content = await previewContent(
+        sessionId,
+        path,
+        flatten(session.artifacts).find((file) => file.path === path)?.updatedAt,
+      );
+      if (active.current === sessionId)
         setPreviewTabs((old) =>
-          old.map((t) => (t.id === id ? { ...t, content: data.text, loading: false } : t)),
+          old.map((item) => (item.id === tabId ? { ...item, ...metadata, ...content } : item)),
         );
-      })
-      .catch((e) => {
-        setPreviewTabs((old) => old.filter((t) => t.id !== id));
-        reportError((e as Error).message);
-      });
+    } catch (error) {
+      setPreviewTabs((old) =>
+        old.map((item) => (item.id === tabId ? { ...item, loading: false } : item)),
+      );
+      reportError((error as Error).message);
+    }
   }
   async function newResearch() {
     if (creating) return;
@@ -635,6 +729,8 @@ export default function App() {
         )}
         {hasPreviewTabs ? (
           <PreviewPanel
+            workflow={session?.workflow}
+            onVersionChange={selectPreviewVersion}
             sessionId={session?.id}
             reportError={reportError}
             onSaved={(path, text) =>

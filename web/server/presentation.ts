@@ -677,7 +677,8 @@ export class PresentationManager {
     const workspace = this.store.workspace(s.id);
     const evidence = version.evidence
       .filter((path) => !/^https?:/.test(path))
-      .map((path) => relative(workspace, resolve(workspace, path)));
+      .map((path) => relative(workspace, resolve(workspace, path)))
+      .filter((path) => this.isMaterial(path));
     const cited = (path: string) =>
       evidence.some((item) => item === path || path.startsWith(item.replace(/\/$/, '') + '/'));
     const files = flattenFiles(s.artifacts).filter((file) => this.isMaterial(file.path));

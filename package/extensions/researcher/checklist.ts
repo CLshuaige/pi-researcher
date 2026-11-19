@@ -23,7 +23,7 @@ export type ResearchModule = Static<typeof ModuleSchema> & {
 export interface Checklist {
   schemaVersion: 1; researchId: string; revision: number; objective: string; objectiveRevision: number;
   modules: ResearchModule[];
-  control: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; reason: string; continuations: number; startedAt: number; wakeAt?: number; wait?: { id: string; objectiveRevision: number; jobIds: string[]; wakeAt?: number; state: 'requested' | 'waiting' }; instructions: { id: string; text: string; resolution?: string; response?: string; followupModuleId?: string; requiresArtifact?: boolean; planned?: boolean }[] };
+  control: { state: 'running' | 'waiting' | 'paused' | 'stopped' | 'completed'; reason: string; continuations: number; startedAt: number; wakeAt?: number; wait?: { id: string; objectiveRevision: number; jobIds: string[]; wakeAt?: number; state: 'requested' | 'waiting' }; instructions: { id: string; text: string; resolution?: string; response?: string; followupModuleId?: string; followupTargets?: string[]; requiresArtifact?: boolean; planned?: boolean }[] };
   audit: { sequence: number; time: string; source: string; reason: string }[];
 }
 /** Modules execute in array order; blocked work is not silently bypassed. */
@@ -34,13 +34,15 @@ export function currentModule(c: Checklist): ResearchModule | undefined {
 /** Shared model/status view. Audit and resolved instructions stay in committed files. */
 export function checklistState(c?: Checklist, inbox: string[] = [], jobs: JobRecord[] = []) {
   const selected = c ? currentModule(c) : undefined;
-  const pendingInstructions = [...(c?.control.instructions.filter(i => !i.resolution) ?? []), ...inbox.map(text => ({ text }))];
+  const pendingInstructions = [...(c?.control.instructions.filter(i => !i.resolution) ?? []), ...inbox.map(text => ({ text }))].map((i: Partial<Checklist['control']['instructions'][number]> & { text: string }) => ({...i,
+    ...('followupTargets' in i && i.followupTargets ? { remainingModuleIds: i.followupTargets.filter(id => !c?.modules.some(m => m.followup?.instructionId === i.id && m.followup?.targetModuleId === id && ['completed','skipped'].includes(m.status))) } : {})}));
   const unhandled = pendingInstructions.filter(i => !('followupModuleId' in i && i.followupModuleId) && !('planned' in i && i.planned));
+  const continuation = unhandled.find(i => i.remainingModuleIds?.length);
   const nextAction = !c ? 'init' : c.control.state==='paused' || c.control.state==='stopped' ? 'finish the current response; wait for explicit continuation' : unhandled.length ? (selected ? 'resolve unrelated instructions or create a scoped followup' : c.modules.length ? 'answer with resolve(response), or create a followup for requested artifacts' : 'answer conversationally with resolve(response), or resolve the research objective and plan initial modules') : c.control.state === 'waiting' ? 'wait for user input, job completion or scheduled wake' : !c.modules.length ? (c.control.instructions.length && c.control.instructions.every(i=>i.resolution && i.response?.trim()) ? 'finish' : 'plan')
     : selected?.status === 'pending' ? 'start' : selected?.status === 'blocked' ? 'resolve blocker or explicitly skip with reason'
     : selected?.status === 'awaiting_acceptance' ? 'verify evidence then accept' : selected ? 'execute current module' : 'finish';
   const describe = (m: ResearchModule) => ({...m, ...(m.followup ? {followup:{...m.followup,baseline:undefined,baselineFileCount:m.followup.baseline.length}} : {})});
-  return { ...(jobs.length ? { jobs: jobs.map(({ id, moduleId, status, logPath, exitCode, error }) => ({ id, moduleId, status, logPath, exitCode, error })) } : {}), initialized: Boolean(c), revision: c?.revision ?? null, currentModule: selected ? describe(selected) : null, nextAction, pendingInstructions,
+  return { ...(jobs.length ? { jobs: jobs.map(({ id, moduleId, status, logPath, exitCode, error }) => ({ id, moduleId, status, logPath, exitCode, error })) } : {}), initialized: Boolean(c), revision: c?.revision ?? null, currentModule: selected ? describe(selected) : null, nextAction: continuation && c?.control.state === 'running' ? `create followup for ${continuation.remainingModuleIds![0]} using instructionId ${continuation.id}; remaining authorized modules: ${continuation.remainingModuleIds!.join(', ')}` : nextAction, pendingInstructions,
     ...(c ? { researchId: c.researchId, objective: c.objective, objectiveRevision: c.objectiveRevision, modules: c.modules.map(describe),
       versions: c.modules.filter(m => !m.followup).map(m => { const version = c.modules.find(v => v.id === m.currentVersionId) ?? m; return {moduleId:m.id, versionId:version.id, versionNumber:version.versionNumber ?? (version.followup?.kind==='revision' ? c.modules.filter(v=>v.followup?.targetModuleId===m.id && v.followup.kind==='revision').findIndex(v=>v.id===version.id)+2 : 1), evidence:version.evidence, needsReview:m.needsReview ?? []}; }),
       control: { state: c.control.state, reason: c.control.reason, continuations: c.control.continuations, startedAt: c.control.startedAt, ...(c.control.wait ? { wait: c.control.wait } : {}), ...(c.control.wakeAt !== undefined ? { wakeAt: c.control.wakeAt } : {}) } } : {}) };

@@ -169,3 +169,13 @@
     padding: 20px;
   }
 }
+
+.preview-version-select {
+  max-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+}
