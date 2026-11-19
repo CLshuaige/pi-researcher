@@ -665,12 +665,12 @@ export default function App() {
                   key={`workflow-${session.id}`}
                   sessionId={session.id}
                   presentation={presentation}
-                  onPresentationRetry={(stage) => {
-                    void api
+                  onPresentationRetry={(stage) =>
+                    api
                       .presentationRetry(session.id, stage)
                       .then(setPresentation)
-                      .catch((e) => reportError(e.message));
-                  }}
+                      .catch((e) => reportError(e.message))
+                  }
                   running={isResearchRunning(session)}
                   artifacts={session.artifacts}
                   onPreviewFile={openPreviewFile}

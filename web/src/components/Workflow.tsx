@@ -28,6 +28,7 @@ import {
   Minus,
   Plus,
   Scan,
+  RotateCw,
   X,
 } from 'lucide-react';
 import type {
@@ -90,6 +91,14 @@ function Stage({ data }: NodeProps<StageNode>) {
   const selectedVersion = data.selectedVersion as string;
   const selectVersion = data.onSelectVersion as (version: string) => void;
   const busy = activity?.status === 'queued' || activity?.status === 'rendering';
+  const failed =
+    activity?.status === 'failed' ||
+    holder?.status === 'failed' ||
+    !!holder?.error ||
+    board?.status === 'failed' ||
+    !!board?.error;
+  const [retrying, setRetrying] = useState(false);
+  const retry = data.onRetry as (() => Promise<void>) | undefined;
   const boardBusy =
     busy &&
     (activity.versionId === selectedVersion ||
@@ -191,6 +200,29 @@ function Stage({ data }: NodeProps<StageNode>) {
                   ? '待更新'
                   : '更新中'}
             </span>
+          )}
+          {failed && !busy && (
+            <button
+              className="presentation-generate nodrag nopan"
+              type="button"
+              disabled={retrying}
+              onClick={async () => {
+                if (!retry || retrying) return;
+                setRetrying(true);
+                try {
+                  await retry();
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            >
+              {retrying ? (
+                <LoaderCircle size={12} className="presentation-spinner" />
+              ) : (
+                <RotateCw size={12} />
+              )}
+              重新生成
+            </button>
           )}
         </div>
       </div>
@@ -300,7 +332,7 @@ function FlowCanvas({
   workflow: WorkflowData;
   sessionId: string;
   presentation?: PresentationState;
-  onPresentationRetry: (stage?: string) => void;
+  onPresentationRetry: (stage?: string) => Promise<void>;
   selectedVersions: Record<string, string>;
   selectVersion: (stage: string, version: string) => void;
   stageStarts: Map<string, string>;
@@ -596,7 +628,7 @@ export function Workflow({
 }: {
   sessionId: string;
   presentation?: PresentationState;
-  onPresentationRetry: (stage?: string) => void;
+  onPresentationRetry: (stage?: string) => Promise<void>;
   running: boolean;
   messages: ChatMessage[];
   onNavigateToMessage: (messageId: string) => void;
