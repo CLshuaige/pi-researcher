@@ -7,9 +7,11 @@ export function SettingsDialog({
   onClose,
   children,
   size = 'default',
+  closeLabel = '关闭设置',
   returnFocusTarget,
 }: {
-  size?: 'default' | 'compact';
+  size?: 'default' | 'compact' | 'wide';
+  closeLabel?: string;
   returnFocusTarget?: HTMLElement | null;
   title: string;
   onClose: () => void;
@@ -26,7 +28,7 @@ export function SettingsDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="settings-overlay" />
         <Dialog.Content
-          className={`settings-dialog${size === 'compact' ? ' compact' : ''}`}
+          className={`settings-dialog${size === 'default' ? '' : ` ${size}`}`}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             if (returnFocus.current?.isConnected) {
@@ -37,7 +39,7 @@ export function SettingsDialog({
         >
           <div className="settings-header">
             <Dialog.Title>{title}</Dialog.Title>
-            <Dialog.Close className="icon-button" aria-label="关闭设置">
+            <Dialog.Close className="icon-button" aria-label={closeLabel}>
               <X size={18} />
             </Dialog.Close>
           </div>

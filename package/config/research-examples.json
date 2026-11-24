@@ -1,0 +1,157 @@
+{
+  "suggestions": [
+    [
+      {
+        "icon": "Atom",
+        "text": "预测蛋白质-RNA 复合物的结合位点"
+      },
+      {
+        "icon": "Layers",
+        "text": "筛选高离子电导率的固态电解质"
+      },
+      {
+        "icon": "Waves",
+        "text": "用图神经网络加速分子动力学模拟"
+      },
+      {
+        "icon": "Network",
+        "text": "从单细胞转录组推断基因调控网络"
+      },
+      {
+        "icon": "Dna",
+        "text": "预测基因编辑的脱靶效应"
+      },
+      {
+        "icon": "FlaskConical",
+        "text": "设计新型催化剂的反应路径"
+      }
+    ],
+    [
+      {
+        "icon": "CloudRain",
+        "text": "预测极端降水事件的次季节演变"
+      },
+      {
+        "icon": "Target",
+        "text": "设计靶向 KRAS G12C 突变的共价抑制剂"
+      },
+      {
+        "icon": "Sigma",
+        "text": "用符号回归发现湍流模型的修正项"
+      },
+      {
+        "icon": "Star",
+        "text": "重建银河系恒星的化学演化历史"
+      },
+      {
+        "icon": "Telescope",
+        "text": "从巡天数据中识别新的引力透镜"
+      },
+      {
+        "icon": "Brain",
+        "text": "构建大脑连接组的全脑动力学模型"
+      }
+    ],
+    [
+      {
+        "icon": "Magnet",
+        "text": "优化托卡马克等离子体约束控制策略"
+      },
+      {
+        "icon": "Scissors",
+        "text": "预测 CRISPR 脱靶效应的全基因组分布"
+      },
+      {
+        "icon": "Microscope",
+        "text": "冷冻电镜密度图自动搭建原子模型"
+      },
+      {
+        "icon": "Sun",
+        "text": "评估钙钛矿太阳能电池的长期稳定性"
+      },
+      {
+        "icon": "AudioWaveform",
+        "text": "模拟海洋内波对声场传播的影响"
+      },
+      {
+        "icon": "Dna2Icon",
+        "text": "预测蛋白质折叠的折叠中间态"
+      }
+    ]
+  ],
+  "benchmark": {
+    "title": "ResearchClawBench",
+    "tasks": [
+      {
+        "id": "Energy_001",
+        "domain": "能源科学",
+        "question": "大不列颠历史及未来能源系统数据，包括网络拓扑、发电机容量、需求曲线、可再生能源时间序列、燃料价格，以及英国国家电网截至 2050 年的未来能源情景（FES）。输出：不同情景下的最优电力调度（发电、储能、弃电）和系统成本，具有较高的空间分辨率（29 节点或分区级）与时间分辨率（逐小时）。科学目标：提供一个完全开源、高分辨率的大不列颠电力系统模型，使未来能源发展路径（例如可再生能源并网、网络约束和灵活性选项）的分析透明且可复现。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/buses.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/links.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/demand.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/generators.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/wind_cf.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/data/storage.csv\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Energy_001/related_work/paper_003.pdf",
+        "icon": "Sun"
+      },
+      {
+        "id": "Chemistry_000",
+        "domain": "化学科学",
+        "question": "本研究的任务是设计并评估一种名为 Kolmogorov–Arnold 图神经网络（KA-GNNs）的新型图神经网络架构，用于分子性质预测：以分子图及其中的原子级和化学键级特征（包括共价与非共价相互作用）作为输入，输出毒性、生物活性和生理效应等分子性质的预测结果。总体科学目标是用基于傅里叶的 Kolmogorov–Arnold 网络模块替换图神经网络中传统的基于多层感知机（MLP）的变换，借助更强的表达能力和理论逼近保证，提高预测准确性、计算效率和可解释性。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/data/bace.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/data/bbbp.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/data/clintox.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/data/hiv.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/data/muv.csv\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Chemistry_000/related_work/paper_003.pdf",
+        "icon": "FlaskConical"
+      },
+      {
+        "id": "Astronomy_000",
+        "domain": "天文学",
+        "question": "通过开发并应用一种新型贝叶斯统计框架，约束超轻玻色子（ULBs）的性质。该框架将黑洞超辐射的物理机制转化为概率模型，输入黑洞质量和自旋测量的完整后验分布（而不仅是点估计）。研究目标是针对超轻玻色子的质量和自相互作用耦合强度，推导在统计上严格成立的上限，从而利用天体物理数据探索基础粒子物理。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/data/IRAS_09149-6206_samples.dat\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/data/M33_X-7_samples.dat\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Astronomy_000/related_work/paper_003.pdf",
+        "icon": "Telescope"
+      },
+      {
+        "id": "Earth_001",
+        "domain": "地球科学",
+        "question": "输入：目标论文公开的美国国家海洋和大气管理局（NOAA）人工影响天气记录，覆盖美国在 2000—2025 年间报告的云播种项目。输出：关于云播种活动的空间集中程度、年度活动变化、项目用途构成，以及播撒材料与设备部署模式的可复现统计表格和图表级证据。科学目标：通过透明、基于脚本的数据分析，检验能否从公开的结构化数据中独立重现目标论文的核心实证结论。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/data/dataset1_cloud_seeding_records/cloud_seeding_us_2000_2025.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/data/dataset1_cloud_seeding_records/us_states.geojson\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/related_work/paper_003.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Earth_001/related_work/paper_004.pdf",
+        "icon": "CloudRain"
+      },
+      {
+        "id": "Information_002",
+        "domain": "信息科学",
+        "question": "输入：来自 15 篇量子多体物理研究论文、关于 Hartree–Fock 方法的多步骤解析计算任务。输出：正确推导的 Hartree–Fock 哈密顿量、计算步骤评分，以及对论文信息提取和步骤评分的自动化处理结果。科学目标：检验大型语言模型（LLMs）能否通过结构化提示模板，准确完成科研级理论物理计算，从而缓解研究过程中相关的关键瓶颈。",
+        "materials": "**数据集：**（原始清单中的 `./data/2111.01152` 是目录，以下展开为该目录内的 11 个可下载文件。）\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152.tex\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152.yaml\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_SM.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_SM.tex\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_auto.md\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_execution.ipynb\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_extractor.ipynb\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_extractor.md\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/2111.01152_score_prompt.ipynb\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/data/2111.01152/Prompt_template.md\n\n注意：目录中包含 `execution`、`extractor` 和 `score_prompt` 等执行或评分辅助文件。上方为完整资源清单；严格盲测时，应先审查这些文件是否会泄露参考步骤或评分信息，再决定哪些文件可以作为被测智能体的输入。\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/related_work/paper_003.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Information_002/related_work/paper_004.pdf",
+        "icon": "Network"
+      },
+      {
+        "id": "Life_001",
+        "domain": "生命科学",
+        "question": "输入：患者特异性测序数据（肿瘤 DNA/RNA、健康组织 DNA）、人类白细胞抗原（HLA）分型结果、突变变异等位基因频率（VAF）、基因表达水平（均值及方差），以及肽段切割、主要组织相容性复合体（MHC）结合和肽–MHC 复合体（pMHC）稳定性的预测评分（来自 pVACtools 等工具）；同时给定疫苗制造预算，即允许纳入的新抗原组分最大数量。输出：最优的个性化新抗原疫苗组合（一组新抗原组分）、定量疫苗效能指标（单细胞免疫应答概率、肿瘤细胞覆盖率、最优疫苗组合的交并比 IoU），以及优化运行时间数据。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/cell-populations.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/final-response-likelihoods.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/optimization_runtime_data.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/selected-vaccine-elements.budget-10.minsum.adaptive.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/sim-specific-response-likelihoods.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-0.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-1.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-2.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-3.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-4.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-5.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-6.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-7.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-8.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine-elements.scores.100-cells.10x.rep-9.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/data/vaccine.budget-10.minsum.adaptive.csv\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Life_001/related_work/paper_003.pdf",
+        "icon": "Dna"
+      },
+      {
+        "id": "Material_003",
+        "domain": "材料科学",
+        "question": "开发一种由人工智能引导的可回收 vitrimer 聚合物逆向设计框架，结合分子动力学模拟、高斯过程校准和图变分自编码器，以生成具有目标玻璃化转变温度（Tg）的新型 vitrimer 化学结构，并通过实验验证选定的候选材料。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/data/tg_calibration.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/data/tg_vitrimer_MD.csv\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Material_003/related_work/paper_003.pdf",
+        "icon": "Layers"
+      },
+      {
+        "id": "Math_001",
+        "domain": "数学",
+        "question": "输入：一个光滑凸目标函数 f(x)（也可能包含非光滑正则化项）以及初始点 x₀。输出：以加速收敛速率实现全局目标函数最小化的最优解 x*。科学目标：建立统一的变量与算子分裂（Variable and Operator Splitting，VOS）框架，从连续时间动力系统的视角推导 Nesterov 加速方法和交替方向乘子法（ADMM），并利用强 Lyapunov 函数证明线性收敛性。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Math_001/data/complex_optimization_data.npy\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Math_001/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Math_001/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Math_001/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Math_001/related_work/paper_003.pdf",
+        "icon": "Sigma"
+      },
+      {
+        "id": "Neuroscience_000",
+        "domain": "神经科学",
+        "question": "输入：官方 SimBA 示例项目中根据姿态数据提取的逐帧特征表，以及与之对齐的行为标签（攻击 Attack、嗅探 Sniffing）。输出：训练完成的监督分类器、定量评估报告、精确率–召回率诊断结果、混淆矩阵和特征重要性表。科学目标：利用开放数据和可执行代码，验证 SimBA 风格的工作流程是否能够以可复现的方式，将跟踪得到的行为特征转化为透明且可审计的行为分类证据。",
+        "materials": "**数据集：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/data/Together_1_features_extracted.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/data/Together_1_targets_inserted.csv\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/data/Together_1_machine_results_reference.csv\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/related_work/paper_003.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Neuroscience_000/related_work/paper_004.pdf",
+        "icon": "Brain"
+      },
+      {
+        "id": "Physics_002",
+        "domain": "物理学",
+        "question": "评估论文中提出的任意几何结构下随机量子电路采样（RCS）的计算能力。输入：不同量子比特数 N、电路深度 d 和实例编号 r 所对应的实验采样结果（比特串计数或样本），以及相应的理想分布信息（可以是完整的理想概率或振幅，也可以是可验证子集的概率或振幅）。这些数据应能支持实现论文使用的保真度估计流程，例如交叉熵基准测试（XEB）、MB 回归概率、基于量子门数的误差传播模型等。输出：每个 (N, d, r) 配置对应的保真度估计及其不确定性；在固定 N 扫描 d、固定 d 扫描 N 等设置下，绘制比较曲线，以验证论文关于“任意几何／高连通性随机电路下，实验保真度与经典可近似性之间存在差距”的核心结论。",
+        "materials": "**数据集：**\n\n本任务 `task_info.json` 给出的两项数据路径是目录 `./data/results` 和 `./data/amplitudes`。原仓库对应文件约 **4,610 个**，下面给出可浏览的完整目录。\n\n- [采样与计数结果目录（results）](https://github.com/InternScience/ResearchClawBench/tree/main/tasks/Physics_002/data/results)\n- [理想振幅目录（amplitudes）](https://github.com/InternScience/ResearchClawBench/tree/main/tasks/Physics_002/data/amplitudes)\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/data/results/N40_verification/N40_d10_XEB/N40_d10_r10_XEB_counts.json\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/data/amplitudes/N40_verification/N40_d10_XEB/N40_d10_r10_XEB_amplitudes.json\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/data/results/N40_verification/N40_d10_MB/N40_d10_r10_MB_counts.json\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/data/results/N40_verification/N40_d10_MB/N40_d10_r10_MB_ideal_bitstring.json\n\n如需程序自动获取**全部**采样与振幅文件，可通过 Git 的稀疏检出只下载本任务数据，避免手工枚举数千条链接：\n\n```bash\ngit clone --depth 1 --filter=blob:none --sparse https://github.com/InternScience/ResearchClawBench.git ResearchClawBench\ncd ResearchClawBench\ngit sparse-checkout set tasks/Physics_002/data\n```\n\n下载后数据目录为 `tasks/Physics_002/data/results/` 和 `tasks/Physics_002/data/amplitudes/`。\n\n**相关文献：**\n\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/related_work/paper_000.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/related_work/paper_001.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/related_work/paper_002.pdf\n- https://raw.githubusercontent.com/InternScience/ResearchClawBench/main/tasks/Physics_002/related_work/paper_003.pdf",
+        "icon": "Atom"
+      }
+    ]
+  }
+}

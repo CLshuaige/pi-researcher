@@ -59,6 +59,12 @@ export async function createApp(root: string, dataDir: string) {
   await mkdir(uploadDir, { recursive: true });
   const upload = multer({ dest: uploadDir, limits: { fileSize: 32 * 1024 * 1024, files: 10 } });
   const session = (req: Request) => service.store.get(String(req.params.id));
+  app.get('/api/research-examples', async (_req, res) => {
+    const examples = JSON.parse(
+      await readFile(join(root, 'package/config/research-examples.json'), 'utf8'),
+    );
+    res.set('Cache-Control', 'no-store').json(examples);
+  });
   app.get('/api/settings/user', async (_req, res) =>
     res.json(await readUserSettings(root, dataDir)),
   );

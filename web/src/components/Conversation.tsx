@@ -1,7 +1,10 @@
+import { api } from '../api';
+import { SettingsDialog } from './SettingsDialog';
 import { readableError } from '../../shared/errors';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
+  BookOpen,
   Check,
   Copy,
   Pencil,
@@ -46,7 +49,29 @@ import type {
   ChatMessage,
   MessageQuote,
   ResearchSession,
+  ResearchExamples,
 } from '../../shared/types';
+
+const EXAMPLE_ICONS: Record<string, typeof Atom> = {
+  Atom,
+  Layers,
+  Waves,
+  Network,
+  CloudRain,
+  Target,
+  Sigma,
+  Star,
+  Magnet,
+  Scissors,
+  Microscope,
+  Sun,
+  Dna,
+  FlaskConical,
+  Telescope,
+  Brain,
+  AudioWaveform,
+  Dna2Icon,
+};
 
 function isFinalAnswer(session: ResearchSession, message: ChatMessage) {
   if (!message.text) return false;
@@ -230,6 +255,25 @@ export function Conversation({
     return () => observer.disconnect();
   }, [s.id, empty]);
   const [suggestion, setSuggestion] = useState<{ text: string; key: number }>();
+  const [examples, setExamples] = useState<ResearchExamples>();
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [examplesLoading, setExamplesLoading] = useState(false);
+  const [examplesError, setExamplesError] = useState('');
+  const loadExamples = useCallback(async () => {
+    setExamplesLoading(true);
+    setExamplesError('');
+    try {
+      setExamples(await api.researchExamples());
+    } catch (error) {
+      setExamplesError((error as Error).message);
+    } finally {
+      setExamplesLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (empty) void loadExamples();
+  }, [empty, s.id, loadExamples]);
+
   const [quote, setQuote] = useState<MessageQuote>();
   const [quotes, setQuotes] = useState<MessageQuote[]>([]);
   const selectionScope = useRef<HTMLDivElement>(null);
@@ -339,98 +383,93 @@ export function Conversation({
             </h2>
           </div>
           {composer}
-          <div className="suggestions-marquee" aria-label="研究建议">
-            <div className="marquee-row marquee-left">
-              <div className="marquee-track">
-                {[
-                  { icon: Atom, text: '预测蛋白质-RNA 复合物的结合位点' },
-                  { icon: Layers, text: '筛选高离子电导率的固态电解质' },
-                  { icon: Waves, text: '用图神经网络加速分子动力学模拟' },
-                  { icon: Network, text: '从单细胞转录组推断基因调控网络' },
-                  { icon: Dna, text: '预测基因编辑的脱靶效应' },
-                  { icon: FlaskConical, text: '设计新型催化剂的反应路径' },
-                ]
-                  .concat([
-                    { icon: Atom, text: '预测蛋白质-RNA 复合物的结合位点' },
-                    { icon: Layers, text: '筛选高离子电导率的固态电解质' },
-                    { icon: Waves, text: '用图神经网络加速分子动力学模拟' },
-                    { icon: Network, text: '从单细胞转录组推断基因调控网络' },
-                    { icon: Dna, text: '预测基因编辑的脱靶效应' },
-                    { icon: FlaskConical, text: '设计新型催化剂的反应路径' },
-                  ])
-                  .map(({ icon: Icon, text }, i) => (
-                    <button
-                      key={i}
-                      className="marquee-chip"
-                      onClick={() => setSuggestion({ text, key: Date.now() })}
-                    >
-                      <Icon size={15} />
-                      {text}
-                    </button>
-                  ))}
-              </div>
-            </div>
-            <div className="marquee-row marquee-right">
-              <div className="marquee-track">
-                {[
-                  { icon: CloudRain, text: '预测极端降水事件的次季节演变' },
-                  { icon: Target, text: '设计靶向 KRAS G12C 突变的共价抑制剂' },
-                  { icon: Sigma, text: '用符号回归发现湍流模型的修正项' },
-                  { icon: Star, text: '重建银河系恒星的化学演化历史' },
-                  { icon: Telescope, text: '从巡天数据中识别新的引力透镜' },
-                  { icon: Brain, text: '构建大脑连接组的全脑动力学模型' },
-                ]
-                  .concat([
-                    { icon: CloudRain, text: '预测极端降水事件的次季节演变' },
-                    { icon: Target, text: '设计靶向 KRAS G12C 突变的共价抑制剂' },
-                    { icon: Sigma, text: '用符号回归发现湍流模型的修正项' },
-                    { icon: Star, text: '重建银河系恒星的化学演化历史' },
-                    { icon: Telescope, text: '从巡天数据中识别新的引力透镜' },
-                    { icon: Brain, text: '构建大脑连接组的全脑动力学模型' },
-                  ])
-                  .map(({ icon: Icon, text }, i) => (
-                    <button
-                      key={i}
-                      className="marquee-chip"
-                      onClick={() => setSuggestion({ text, key: Date.now() })}
-                    >
-                      <Icon size={15} />
-                      {text}
-                    </button>
-                  ))}
-              </div>
-            </div>
-            <div className="marquee-row marquee-left">
-              <div className="marquee-track">
-                {[
-                  { icon: Magnet, text: '优化托卡马克等离子体约束控制策略' },
-                  { icon: Scissors, text: '预测 CRISPR 脱靶效应的全基因组分布' },
-                  { icon: Microscope, text: '冷冻电镜密度图自动搭建原子模型' },
-                  { icon: Sun, text: '评估钙钛矿太阳能电池的长期稳定性' },
-                  { icon: AudioWaveform, text: '模拟海洋内波对声场传播的影响' },
-                  { icon: Dna2Icon, text: '预测蛋白质折叠的折叠中间态' },
-                ]
-                  .concat([
-                    { icon: Magnet, text: '优化托卡马克等离子体约束控制策略' },
-                    { icon: Scissors, text: '预测 CRISPR 脱靶效应的全基因组分布' },
-                    { icon: Microscope, text: '冷冻电镜密度图自动搭建原子模型' },
-                    { icon: Sun, text: '评估钙钛矿太阳能电池的长期稳定性' },
-                    { icon: AudioWaveform, text: '模拟海洋内波对声场传播的影响' },
-                    { icon: Dna2Icon, text: '预测蛋白质折叠的折叠中间态' },
-                  ])
-                  .map(({ icon: Icon, text }, i) => (
-                    <button
-                      key={i}
-                      className="marquee-chip"
-                      onClick={() => setSuggestion({ text, key: Date.now() })}
-                    >
-                      <Icon size={15} />
-                      {text}
-                    </button>
-                  ))}
-              </div>
-            </div>
+          <div className="benchmark-entry">
+            <button
+              type="button"
+              className="marquee-chip"
+              onClick={() => {
+                setBenchmarkOpen(true);
+                void loadExamples();
+              }}
+            >
+              <BookOpen size={15} />
+              {examples?.benchmark.title || 'ResearchClawBench'}
+            </button>
           </div>
+          <div className="suggestions-marquee" aria-label="研究建议">
+            {examples?.suggestions.map((row, index) => (
+              <div
+                key={index}
+                className={`marquee-row ${index % 2 ? 'marquee-right' : 'marquee-left'}`}
+              >
+                <div className="marquee-track">
+                  {row.concat(row).map(({ icon, text }, i) => {
+                    const Icon = EXAMPLE_ICONS[icon] || Atom;
+                    return (
+                      <button
+                        type="button"
+                        key={i}
+                        className="marquee-chip"
+                        onClick={() => setSuggestion({ text, key: Date.now() })}
+                      >
+                        <Icon size={15} />
+                        {text}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {benchmarkOpen && (
+            <SettingsDialog
+              title={examples?.benchmark.title || 'ResearchClawBench'}
+              size="wide"
+              closeLabel="关闭示例问题"
+              onClose={() => setBenchmarkOpen(false)}
+              returnFocusTarget={composerArea.current?.querySelector('textarea')}
+            >
+              <div className="benchmark-list" aria-busy={examplesLoading}>
+                {examplesLoading && <p role="status">正在加载</p>}
+                {examplesError && (
+                  <div role="alert">
+                    {examplesError}
+                    <button type="button" onClick={() => void loadExamples()}>
+                      重新加载
+                    </button>
+                  </div>
+                )}
+                {!examplesLoading &&
+                  !examplesError &&
+                  examples?.benchmark.tasks.map((task) => {
+                    const Icon = EXAMPLE_ICONS[task.icon] || Atom;
+                    return (
+                      <button
+                        type="button"
+                        className="benchmark-question"
+                        key={task.id}
+                        onClick={() => {
+                          setSuggestion({
+                            text: [task.question, task.materials].filter(Boolean).join('\n\n'),
+                            key: Date.now(),
+                          });
+                          setBenchmarkOpen(false);
+                        }}
+                      >
+                        <span className="benchmark-question-top">
+                          <Icon className="benchmark-question-icon" size={72} strokeWidth={1.7} />
+                        </span>
+                        <strong className="benchmark-question-title">
+                          {task.domain}
+                          <br />
+                          {task.id}
+                        </strong>
+                      </button>
+                    );
+                  })}
+              </div>
+            </SettingsDialog>
+          )}
           <div className="empty-hero" aria-hidden="true">
             <img src={heroBg} alt="" />
           </div>

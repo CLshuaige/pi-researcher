@@ -263,3 +263,12 @@ export function presentationRole(label: string) {
   ] as const;
   return roles.find((item) => item.pattern.test(label)) || roles[0];
 }
+
+/** Homepage examples are served from package/config/research-examples.json. */
+export interface ResearchExamples {
+  suggestions: { icon: string; text: string }[][];
+  benchmark: {
+    title: string;
+    tasks: { id: string; domain: string; icon: string; question: string; materials: string }[];
+  };
+}

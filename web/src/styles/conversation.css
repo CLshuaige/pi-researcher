@@ -878,3 +878,86 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The benchmark shares the suggestion chips and the existing dialog shell. */
+.benchmark-entry {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+.benchmark-entry + .suggestions-marquee {
+  margin-top: 12px;
+}
+/* A wide catalog uses as many columns as the available desktop width allows. */
+.settings-dialog.wide {
+  width: min(1280px, 96vw);
+  height: auto;
+  max-height: 90dvh;
+}
+.benchmark-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 18px;
+  padding: 22px;
+  scrollbar-gutter: stable;
+}
+.benchmark-list > [role='status'],
+.benchmark-list > [role='alert'] {
+  grid-column: 1 / -1;
+}
+.benchmark-question {
+  display: block;
+  height: max-content;
+  align-self: start;
+  min-width: 0;
+  min-height: 176px;
+  text-align: left;
+  padding: 22px;
+  border: 2px solid var(--ink);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--ink);
+  transition: transform 150ms;
+}
+.benchmark-question:hover {
+  transform: translateY(-2px);
+}
+.benchmark-question:focus-visible {
+  outline: 3px solid var(--cobalt);
+  outline-offset: 5px;
+}
+.benchmark-question-top {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 100px;
+}
+.benchmark-question-icon {
+  flex-shrink: 0;
+  color: #ca8521;
+}
+.benchmark-question:nth-child(5n + 2) .benchmark-question-icon {
+  color: #5579cb;
+}
+.benchmark-question:nth-child(5n + 3) .benchmark-question-icon {
+  color: #9b6bd1;
+}
+.benchmark-question:nth-child(5n + 4) .benchmark-question-icon {
+  color: #3c9b84;
+}
+.benchmark-question:nth-child(5n + 5) .benchmark-question-icon {
+  color: #d46a67;
+}
+.benchmark-question-title {
+  display: block;
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}

@@ -5,6 +5,7 @@ export interface UserSettings {
 }
 import type {
   PresentationState,
+  ResearchExamples,
   PresentationSource,
   Attachment,
   ConfigKey,
@@ -35,6 +36,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
 const post = <T>(path: string, body = {}) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 export const api = {
+  researchExamples: () => request<ResearchExamples>('/research-examples'),
   presentation: (id: string) => request<PresentationState>(`/sessions/${id}/presentation`),
   presentationVisible: (id: string, visible: boolean, viewer: string) =>
     post<PresentationState>(`/sessions/${id}/presentation/visible`, { visible, viewer }),
